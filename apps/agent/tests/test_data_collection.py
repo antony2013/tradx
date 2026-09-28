@@ -23,7 +23,7 @@ def test_prompt_hard_boundaries() -> None:
         assert phrase in lowered, phrase
     assert "<<" not in SYSTEM_PROMPT
     assert ">>" not in SYSTEM_PROMPT
-    assert "not available as a historical fetch api" in lowered
+    assert "tbt historical fetch does not exist" in lowered
 
 
 def test_agent_builds_with_tools() -> None:
@@ -34,6 +34,37 @@ def test_agent_builds_with_tools() -> None:
 
     assert AGENT_NAME == "data_collection"
     build_data_collection_agent()
+
+
+def test_prompt_synced_with_tools() -> None:
+    from data_collection.prompt import SYSTEM_PROMPT
+
+    lowered = SYSTEM_PROMPT.lower()
+    # Every tool + subagent is routable from the prompt.
+    for name in (
+        "search_instruments",
+        "fetch_option_contracts",
+        "fetch_historical",
+        "validate_dataset",
+        "fetch_expiries",
+        "fetch_expired_option_contracts",
+        "fetch_expired_future_contracts",
+        "get_options_smartlist",
+        "get_futures_smartlist",
+        "get_oi",
+        "get_change_oi",
+        "get_max_pain",
+        "get_pcr",
+        "instrument_key_finder",
+        "history_data_fetcher",
+        "expiry_data_fetcher",
+        "market_information",
+    ):
+        assert name in lowered, name
+    # Correct arg vocabulary.
+    assert "from_date" in lowered and "to_date" in lowered
+    # Expired candles route through fetch_historical, not a separate tool.
+    assert "fetch_expired_candles" not in lowered
 
 
 def test_three_subagents_assigned() -> None:
@@ -53,7 +84,10 @@ def test_three_subagents_assigned() -> None:
     market = market_info_spec()
     assert finder["name"] == "instrument_key_finder"
     assert finder["mode"] == "isolated"
-    assert {t.name for t in finder["tools"]} == {"search_instruments"}
+    assert {t.name for t in finder["tools"]} == {
+        "search_instruments",
+        "fetch_option_contracts",
+    }
     assert history["name"] == "history_data_fetcher"
     assert {t.name for t in history["tools"]} == {
         "fetch_historical",
@@ -64,7 +98,8 @@ def test_three_subagents_assigned() -> None:
         "fetch_expiries",
         "fetch_expired_option_contracts",
         "fetch_expired_future_contracts",
-        "fetch_expired_candles",
+        "fetch_historical",
+        "validate_dataset",
     }
     assert market["name"] == "market_information"
     assert market["mode"] == "isolated"
@@ -158,20 +193,13 @@ def test_expiry_tools_forward(monkeypatch) -> None:  # type: ignore[no-untyped-d
     import sys
 
     sys.path.insert(0, ".")
-    from data_collection.expiry_tools import (
-        fetch_expired_candles,
-        fetch_expiries,
-    )
+    from data_collection.expiry_tools import fetch_expiries
 
     seen: dict = {}
 
     def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
         seen["url"] = request.full_url
-        if "expiries" in request.full_url and "expired" not in request.full_url.replace(
-            "/expired-instruments/expiries", ""
-        ):
-            return _fake_ok({"data": ["2024-10-03"]})(request)
-        return _fake_ok({"data": {"candles": []}})(request)
+        return _fake_ok({"data": ["2024-10-03"]})(request)
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     out = json.loads(fetch_expiries.invoke({"instrument_key": "NSE_INDEX|Nifty 50"}))
@@ -179,18 +207,38 @@ def test_expiry_tools_forward(monkeypatch) -> None:  # type: ignore[no-untyped-d
         "/instruments/expiries?instrument_key=NSE_INDEX%7CNifty%2050"
     )
     assert out == {"data": ["2024-10-03"]}
-    out2 = json.loads(
-        fetch_expired_candles.invoke(
-            {
-                "instrument_key": "NSE_FO|58422|03-10-2024",
-                "interval": "day",
-                "to_date": "2024-10-03",
-                "from_date": "2024-09-01",
-            }
+
+
+def test_filesystem_denied_at_build() -> None:
+    import sys
+
+    sys.path.insert(0, ".")
+    from data_collection.agent import FILESYSTEM_DENY_ALL
+
+    assert FILESYSTEM_DENY_ALL.mode == "deny"
+    assert FILESYSTEM_DENY_ALL.paths == ["/"]
+
+
+def test_chain_caps_reported(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import sys
+
+    sys.path.insert(0, ".")
+    from data_collection.expiry_tools import fetch_expired_option_contracts
+
+    rows = [{"instrument_key": f"K|{i}"} for i in range(150)]
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        return _fake_ok({"data": rows})(request)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    out = json.loads(
+        fetch_expired_option_contracts.invoke(
+            {"instrument_key": "NSE_INDEX|Nifty 50", "expiry_date": "2024-10-03"}
         )
     )
-    assert "expired-candles" in seen["url"]
-    assert out2 == {"data": {"candles": []}}
+    assert out["total"] == 150
+    assert out["truncated"] is True
+    assert len(out["contracts"]) == 100
 
 
 def test_market_tools_forward_and_error(monkeypatch) -> None:  # type: ignore[no-untyped-def]

@@ -5,24 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from deepagents import create_deep_agent
+from deepagents.middleware.filesystem import FilesystemPermission
 
-from .expiry_tools import (
-    fetch_expired_candles,
-    fetch_expired_future_contracts,
-    fetch_expired_option_contracts,
-    fetch_expiries,
-)
-from .history_tools import fetch_historical, validate_dataset
-from .market_tools import (
-    get_change_oi,
-    get_futures_smartlist,
-    get_max_pain,
-    get_oi,
-    get_options_smartlist,
-    get_pcr,
-)
 from .prompt import SYSTEM_PROMPT
-from .search_tools import fetch_option_contracts, search_instruments
 from .subagents import (
     expiry_fetcher_spec,
     history_fetcher_spec,
@@ -33,6 +18,14 @@ from .subagents import (
 AGENT_NAME = "data_collection"
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+
+# The framework adds built-in filesystem tools by default. This agent must
+# never touch host files: deny all filesystem operations explicitly.
+FILESYSTEM_DENY_ALL = FilesystemPermission(
+    operations=["read", "write"],
+    paths=["/"],
+    mode="deny",
+)
 
 
 def resolve_model(spec: Any | None) -> Any | None:
@@ -63,22 +56,9 @@ def build_data_collection_agent(model: Any | None = None):  # type: ignore[no-un
     """Build the agent. Model required only to invoke, not to build."""
     return create_deep_agent(
         model=resolve_model(model),
-        tools=[
-            search_instruments,
-            fetch_option_contracts,
-            fetch_historical,
-            validate_dataset,
-            fetch_expiries,
-            fetch_expired_option_contracts,
-            fetch_expired_future_contracts,
-            fetch_expired_candles,
-            get_options_smartlist,
-            get_futures_smartlist,
-            get_oi,
-            get_change_oi,
-            get_max_pain,
-            get_pcr,
-        ],
+        # No direct data tools: the main agent MUST delegate to subagents.
+        # Giving it tools invites direct-call retry loops instead of routing.
+        tools=[],
         system_prompt=SYSTEM_PROMPT,
         subagents=[
             instrument_finder_spec(),
@@ -87,4 +67,5 @@ def build_data_collection_agent(model: Any | None = None):  # type: ignore[no-un
             market_info_spec(),
         ],
         name=AGENT_NAME,
+        permissions=[FILESYSTEM_DENY_ALL],
     )

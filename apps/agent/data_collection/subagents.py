@@ -7,7 +7,6 @@ from typing import cast
 from deepagents.middleware.subagents import SubAgent
 
 from .expiry_tools import (
-    fetch_expired_candles,
     fetch_expired_future_contracts,
     fetch_expired_option_contracts,
     fetch_expiries,
@@ -21,12 +20,19 @@ from .market_tools import (
     get_options_smartlist,
     get_pcr,
 )
-from .search_tools import search_instruments
+from .search_tools import fetch_option_contracts, search_instruments
 
 INSTRUMENT_FINDER_NAME = "instrument_key_finder"
 HISTORY_FETCHER_NAME = "history_data_fetcher"
 EXPIRY_FETCHER_NAME = "expiry_data_fetcher"
 MARKET_INFO_NAME = "market_information"
+
+# Core rules every isolated subagent carries (they cannot see the parent
+# prompt, so the essentials are duplicated here in compact form).
+CORE_RULES = """\
+Core rules (always apply): never invent or fabricate data — only report
+tool-verified values; never trade, analyse, or recommend; on error, fix
+parameters from the tool hint and retry once, then report honestly."""
 
 
 def instrument_finder_spec() -> SubAgent:
@@ -51,9 +57,10 @@ Rules:
 4. Return ONLY verified rows: instrument_key, trading_symbol, expiry,
    strike_price, lot_size. Empty result is a valid answer.
 5. Keep segments straight (NSE_INDEX vs NSE_EQ vs NSE_FO).
-6. When instrument_types is set, segments must be concrete (FO or OPT).""",
+6. When instrument_types is set, segments must be concrete (FO or OPT).
+""" + CORE_RULES,
         "mode": "isolated",
-        "tools": [search_instruments],
+        "tools": [search_instruments, fetch_option_contracts],
         },
     )
 
@@ -79,7 +86,8 @@ Rules:
 3. Always follow with validate_dataset and report its verdict (VALID /
    INVALID / INCOMPLETE), completeness, and gaps.
 4. Report ONLY the dataset record + verdict. Never fabricate candle values.
-5. PARTIAL/FAILED means re-request later to resume — say so explicitly.""",
+5. PARTIAL/FAILED means re-request later to resume — say so explicitly.
+""" + CORE_RULES,
         "mode": "isolated",
         "tools": [fetch_historical, validate_dataset],
         },
@@ -92,26 +100,30 @@ def expiry_fetcher_spec() -> SubAgent:
         SubAgent,
         {
             "name": EXPIRY_FETCHER_NAME,
-        "description": (
-            "Collects expired-instrument data: expiries, expired option/future "
-            "contracts, and expired contract candles. Delegate for any "
-            "expiry-driven history work."
-        ),
-        "system_prompt": """\
-You collect expired-instrument data through the expiry tools.
+            "description": (
+                "Collects expired-instrument data: expiries, expired option/future "
+                "contracts, and expired-candle datasets. Delegate for any "
+                "expiry-driven history work."
+            ),
+            "system_prompt": """\
+You collect expired-instrument data.
 Rules:
 1. Start from fetch_expiries for the underlying; derive everything from it.
 2. Use fetch_expired_option_contracts / fetch_expired_future_contracts with
    an already-expired expiry_date to get date-suffixed contract keys.
-3. Use fetch_expired_candles per contract key for OHLC history.
-4. Report keys, counts, and any empty results honestly (empty = no contracts,
-   not an error). Never fabricate candles or keys.""",
+3. For candles of an expired key, call fetch_historical with the
+   date-suffixed key, then validate_dataset — expired rows are stored and
+   validated like any dataset, never pasted into context.
+4. Report keys, dataset_ids, verdicts, and empty results honestly
+   (empty = no contracts, not an error). Never fabricate candles or keys.
+""" + CORE_RULES,
         "mode": "isolated",
         "tools": [
             fetch_expiries,
             fetch_expired_option_contracts,
             fetch_expired_future_contracts,
-            fetch_expired_candles,
+            fetch_historical,
+            validate_dataset,
         ],
         },
     )
@@ -137,7 +149,8 @@ Rules:
 3. Report the returned numbers verbatim with their timestamps. Never
    compute your own ratios from partial rows; use the reported pcr/max_pain.
 4. These are point-in-time snapshots for context, not signals. Never
-   present them as trade recommendations.""",
+   present them as trade recommendations.
+""" + CORE_RULES,
             "mode": "isolated",
             "tools": [
                 get_options_smartlist,

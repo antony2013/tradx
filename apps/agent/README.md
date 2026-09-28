@@ -1,6 +1,7 @@
 # tradex-agent
 
-Minimal Python base for the future agent. Nothing else installed.
+Python agent project: `data_collection` agent (deepagents) plus the minimal
+base. Scope: collect + validate + store market data only.
 
 ## Setup (Windows)
 
@@ -21,8 +22,9 @@ uv sync
 ```bash
 uv run pytest
 uv run ruff check .
+uv run mypy data_collection settings.py
 ```
 
-Base deps only: `pydantic`, `pydantic-settings`, `python-dotenv`
-(+ `pytest`, `ruff` for dev). No deepagents, no sandbox — those come
-only when explicitly requested.
+Deps: `deepagents`, `pydantic`, `pydantic-settings`, `python-dotenv`
+(+ `pytest`, `ruff`, `mypy` for dev). Filesystem tools are denied at
+build time (`FILESYSTEM_DENY_ALL`) — the agent works through API tools only.

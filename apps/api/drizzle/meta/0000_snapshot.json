@@ -1,0 +1,42 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "a0943861-6c5d-4dbe-bd91-4d716f3aab2a",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "database_probe": {
+      "name": "database_probe",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "marker": {
+          "name": "marker",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

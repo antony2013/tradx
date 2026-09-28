@@ -1,0 +1,25 @@
+# dotenv environment variable files
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
+
+# Python caches and artifacts
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Temporary research artifacts (never commit datasets)
+*.parquet
+research/sandbox/*
+!research/sandbox/.gitkeep
+
+# Agent tooling (local only)
+.kilo/

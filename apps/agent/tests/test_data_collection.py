@@ -37,31 +37,73 @@ def test_agent_builds_with_tools() -> None:
 
 
 def test_prompt_synced_with_tools() -> None:
-    from data_collection.prompt import SYSTEM_PROMPT
+    import re
+    import sys
 
-    lowered = SYSTEM_PROMPT.lower()
-    # Every tool + subagent is routable from the prompt.
-    for name in (
-        "search_instruments",
-        "fetch_option_contracts",
-        "acquire_dataset",
-        "validate_dataset",
-        "fetch_expiries",
-        "fetch_expired_option_contracts",
-        "fetch_expired_future_contracts",
-        "get_options_smartlist",
-        "get_futures_smartlist",
-        "get_oi",
-        "get_change_oi",
-        "get_max_pain",
-        "get_pcr",
-        "get_exchange_status",
-        "get_market_timings",
-        "get_market_holidays",
-        "market_information",
-        "market_status",
-    ):
+    sys.path.insert(0, ".")
+    from data_collection import (
+        acquire_dataset,
+        fetch_expired_future_contracts,
+        fetch_expired_option_contracts,
+        fetch_expiries,
+        fetch_historical,
+        fetch_option_contracts,
+        get_change_oi,
+        get_exchange_status,
+        get_futures_smartlist,
+        get_market_holidays,
+        get_market_timings,
+        get_max_pain,
+        get_oi,
+        get_options_smartlist,
+        get_pcr,
+        search_instruments,
+        validate_dataset,
+    )
+    from data_collection import prompt as prompt_module
+    from data_collection import subagents as subagents_module
+
+    lowered = prompt_module.SYSTEM_PROMPT.lower()
+    # Every tool the prompt tells the model to call must really exist.
+    real_tools = {
+        t.name
+        for t in (
+            acquire_dataset,
+            fetch_expired_future_contracts,
+            fetch_expired_option_contracts,
+            fetch_expiries,
+            fetch_historical,
+            fetch_option_contracts,
+            get_change_oi,
+            get_exchange_status,
+            get_futures_smartlist,
+            get_market_holidays,
+            get_market_timings,
+            get_max_pain,
+            get_oi,
+            get_options_smartlist,
+            get_pcr,
+            search_instruments,
+            validate_dataset,
+        )
+    }
+    mentioned = set(
+        re.findall(
+            r"\b((?:search|fetch|get|acquire|validate)_[a-z_]+)\b", lowered
+        )
+    )
+    assert mentioned, "prompt names no tools at all"
+    assert mentioned <= real_tools, mentioned - real_tools
+    # Subagent names match the built specs in both directions (no drift).
+    spec_names = {
+        subagents_module.MARKET_INFO_NAME,
+        subagents_module.MARKET_STATUS_NAME,
+    }
+    for name in spec_names:
         assert name in lowered, name
+    # Refusal contract: exact sentence with a dataset placeholder.
+    assert "that's outside data collection scope" in lowered
+    assert "<dataset_id>" in prompt_module.SYSTEM_PROMPT
     # Correct arg vocabulary.
     assert "from_date" in lowered and "to_date" in lowered
     # Expired candles route through acquire_dataset/fetch_historical,

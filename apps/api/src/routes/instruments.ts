@@ -156,7 +156,7 @@ function marketResponses(description: string) {
 const optionsSmartlistRouteDef = createRoute({
   method: 'get',
   path: '/market/smartlists/options',
-  tags: ['instruments'],
+  tags: ['market'],
   summary: 'Options smartlist by asset type and category',
   request: { query: SmartlistQuerySchema },
   responses: marketResponses('Ranked option contracts'),
@@ -165,7 +165,7 @@ const optionsSmartlistRouteDef = createRoute({
 const futuresSmartlistRouteDef = createRoute({
   method: 'get',
   path: '/market/smartlists/futures',
-  tags: ['instruments'],
+  tags: ['market'],
   summary: 'Futures smartlist by asset type and category',
   request: { query: SmartlistQuerySchema },
   responses: marketResponses('Ranked futures contracts'),
@@ -174,7 +174,7 @@ const futuresSmartlistRouteDef = createRoute({
 const oiRouteDef = createRoute({
   method: 'get',
   path: '/market/oi',
-  tags: ['instruments'],
+  tags: ['market'],
   summary: 'Strike-wise open interest for an underlying and expiry',
   request: { query: MarketOiQuerySchema },
   responses: marketResponses('Total and strike-wise OI'),
@@ -183,7 +183,7 @@ const oiRouteDef = createRoute({
 const changeOiRouteDef = createRoute({
   method: 'get',
   path: '/market/change-oi',
-  tags: ['instruments'],
+  tags: ['market'],
   summary: 'Total and strike-wise change in open interest',
   request: { query: MarketOiQuerySchema },
   responses: marketResponses('OI changes'),
@@ -192,7 +192,7 @@ const changeOiRouteDef = createRoute({
 const maxPainRouteDef = createRoute({
   method: 'get',
   path: '/market/max-pain',
-  tags: ['instruments'],
+  tags: ['market'],
   summary: 'Max pain, spot price and intraday insights',
   request: { query: MarketBucketQuerySchema },
   responses: marketResponses('Max pain data'),
@@ -201,7 +201,7 @@ const maxPainRouteDef = createRoute({
 const pcrRouteDef = createRoute({
   method: 'get',
   path: '/market/pcr',
-  tags: ['instruments'],
+  tags: ['market'],
   summary: 'Put-call ratio, spot price and intraday insights',
   request: { query: MarketBucketQuerySchema },
   responses: marketResponses('PCR data'),
@@ -210,7 +210,7 @@ const pcrRouteDef = createRoute({
 const exchangeStatusRouteDef = createRoute({
   method: 'get',
   path: '/market/status',
-  tags: ['instruments'],
+  tags: ['market'],
   summary: 'Live trading status for an exchange (open/closed, last update)',
   request: { query: ExchangeStatusQuerySchema },
   responses: marketResponses('Exchange status'),
@@ -219,7 +219,7 @@ const exchangeStatusRouteDef = createRoute({
 const marketTimingsRouteDef = createRoute({
   method: 'get',
   path: '/market/timings',
-  tags: ['instruments'],
+  tags: ['market'],
   summary: 'Session start/end times per exchange for a date',
   request: { query: MarketTimingsQuerySchema },
   responses: marketResponses('Market timings'),
@@ -228,7 +228,7 @@ const marketTimingsRouteDef = createRoute({
 const marketHolidaysRouteDef = createRoute({
   method: 'get',
   path: '/market/holidays',
-  tags: ['instruments'],
+  tags: ['market'],
   summary: 'Exchange holidays, optionally for one date (feeds gap analysis)',
   request: { query: MarketHolidaysQuerySchema },
   responses: marketResponses('Market holidays'),

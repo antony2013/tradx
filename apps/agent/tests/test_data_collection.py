@@ -55,10 +55,14 @@ def test_prompt_synced_with_tools() -> None:
         "get_change_oi",
         "get_max_pain",
         "get_pcr",
+        "get_exchange_status",
+        "get_market_timings",
+        "get_market_holidays",
         "instrument_key_finder",
         "history_data_fetcher",
         "expiry_data_fetcher",
         "market_information",
+        "market_status",
     ):
         assert name in lowered, name
     # Correct arg vocabulary.
@@ -67,7 +71,7 @@ def test_prompt_synced_with_tools() -> None:
     assert "fetch_expired_candles" not in lowered
 
 
-def test_three_subagents_assigned() -> None:
+def test_all_subagents_assigned() -> None:
     import sys
 
     sys.path.insert(0, ".")
@@ -76,6 +80,7 @@ def test_three_subagents_assigned() -> None:
         history_fetcher_spec,
         instrument_finder_spec,
         market_info_spec,
+        market_status_spec,
     )
 
     finder = instrument_finder_spec()
@@ -110,6 +115,14 @@ def test_three_subagents_assigned() -> None:
         "get_change_oi",
         "get_max_pain",
         "get_pcr",
+    }
+    status = market_status_spec()
+    assert status["name"] == "market_status"
+    assert status["mode"] == "isolated"
+    assert {t.name for t in status["tools"]} == {
+        "get_exchange_status",
+        "get_market_timings",
+        "get_market_holidays",
     }
 
 
@@ -302,6 +315,43 @@ def test_market_tools_forward_and_error(monkeypatch) -> None:  # type: ignore[no
         )
     )
     assert "error" in err and "hint" in err
+
+
+def test_market_status_tools_forward(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import sys
+
+    sys.path.insert(0, ".")
+    from data_collection.market_tools import (
+        get_exchange_status,
+        get_market_holidays,
+        get_market_timings,
+    )
+
+    seen: dict = {}
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        seen["url"] = request.full_url
+        if "/market/holidays" in request.full_url:
+            return _fake_ok(
+                {"data": [{"date": "2026-10-02", "description": "Gandhi Jayanti"}]}
+            )(request)
+        return _fake_ok({"data": {"exchange": "NSE"}})(request)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    out = json.loads(get_exchange_status.invoke({"exchange": "NSE"}))
+    assert "/market/status?exchange=NSE" in seen["url"]
+    assert out == {"data": {"exchange": "NSE"}}
+
+    out = json.loads(get_market_timings.invoke({"date": "2026-09-29"}))
+    assert "/market/timings?date=2026-09-29" in seen["url"]
+
+    out = json.loads(get_market_holidays.invoke({"date": "2026-10-02"}))
+    assert "/market/holidays?date=2026-10-02" in seen["url"]
+    assert out["total"] == 1
+    assert out["truncated"] is False
+
+    out = json.loads(get_market_holidays.invoke({}))
+    assert seen["url"].endswith("/market/holidays")
 
 
 def test_tools_return_errors_not_raise(monkeypatch) -> None:  # type: ignore[no-untyped-def]

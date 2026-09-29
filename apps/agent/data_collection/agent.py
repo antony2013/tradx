@@ -15,6 +15,7 @@ from .subagents import (
     history_fetcher_spec,
     instrument_finder_spec,
     market_info_spec,
+    market_status_spec,
 )
 
 AGENT_NAME = "data_collection"
@@ -65,6 +66,7 @@ def build_data_collection_agent(model: Any | None = None):  # type: ignore[no-un
             history_fetcher_spec(),
             expiry_fetcher_spec(),
             market_info_spec(),
+            market_status_spec(),
         ],
         name=AGENT_NAME,
         permissions=[FILESYSTEM_DENY_ALL],

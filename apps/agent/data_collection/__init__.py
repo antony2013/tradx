@@ -16,7 +16,10 @@ from .expiry_tools import (
 from .history_tools import fetch_historical, validate_dataset
 from .market_tools import (
     get_change_oi,
+    get_exchange_status,
     get_futures_smartlist,
+    get_market_holidays,
+    get_market_timings,
     get_max_pain,
     get_oi,
     get_options_smartlist,
@@ -29,10 +32,12 @@ from .subagents import (
     HISTORY_FETCHER_NAME,
     INSTRUMENT_FINDER_NAME,
     MARKET_INFO_NAME,
+    MARKET_STATUS_NAME,
     expiry_fetcher_spec,
     history_fetcher_spec,
     instrument_finder_spec,
     market_info_spec,
+    market_status_spec,
 )
 
 __all__ = [
@@ -42,6 +47,7 @@ __all__ = [
     "HISTORY_FETCHER_NAME",
     "INSTRUMENT_FINDER_NAME",
     "MARKET_INFO_NAME",
+    "MARKET_STATUS_NAME",
     "SYSTEM_PROMPT",
     "build_data_collection_agent",
     "expiry_fetcher_spec",
@@ -51,7 +57,10 @@ __all__ = [
     "fetch_historical",
     "fetch_option_contracts",
     "get_change_oi",
+    "get_exchange_status",
     "get_futures_smartlist",
+    "get_market_holidays",
+    "get_market_timings",
     "get_max_pain",
     "get_oi",
     "get_options_smartlist",
@@ -59,6 +68,7 @@ __all__ = [
     "history_fetcher_spec",
     "instrument_finder_spec",
     "market_info_spec",
+    "market_status_spec",
     "resolve_model",
     "search_instruments",
     "validate_dataset",

@@ -27,6 +27,10 @@ every value reported must come from a subagent's tool-verified result.
   candles via fetch_historical with date-suffixed keys.
 - market_information: OI/smartlist snapshots via get_options_smartlist,
   get_futures_smartlist, get_oi, get_change_oi, get_max_pain, get_pcr.
+- market_status: exchange status, session timings, holidays via
+  get_exchange_status (exchange), get_market_timings (date),
+  get_market_holidays (date optional, omit for full list). Snapshots for
+  context — never reclassify a validation verdict as a holiday yourself.
 Combined flow: finder verifies the key FIRST, then pass that EXACT key to
 the fetcher. Never skip verification, never retype a key from memory.
 
@@ -36,7 +40,8 @@ the fetcher. Never skip verification, never retype a key from memory.
 3. Timestamps: BIGINT epoch ms, IST semantics preserved; current_ts and
    received_ts are separate fields — never overwrite one with the other.
 4. Never hardcode expiries, lot sizes, strike steps, or holiday lists.
-   Derive them from fetch_expiries. (Said once — it covers everything.)
+   Derive expiries from fetch_expiries and holidays from
+   get_market_holidays. (Said once — it covers everything.)
 5. Raw API responses are immutable (historical_raw_responses, hashed).
    Normalized rows go to historical_candles. Never edit raw rows.
 6. Idempotent: same parameters → same dataset_id. Resume PARTIAL by
@@ -58,8 +63,8 @@ the fetcher. Never skip verification, never retype a key from memory.
    summaries, not raw data (raw rows never enter context beyond capped
    tool outputs).
 5. Downloads you did not verify do not exist. Weekends are not errors;
-   report weekday gaps exactly as validate_dataset lists them (no holiday
-   calendar exists — do not classify gaps as holidays yourself).
+   report weekday gaps exactly as validate_dataset lists them (holidays
+   are context via market_status — do not reclassify verdicts yourself).
 6. Timestamps you report come from tool outputs only. The current time,
    fetched_at, or "today" must never be invented — if a timestamp is not
    in a tool result, say it is unknown.

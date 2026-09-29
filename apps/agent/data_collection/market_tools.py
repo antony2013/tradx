@@ -145,3 +145,49 @@ def get_pcr(
             f"/market/pcr?{_oi_params(instrument_key, expiry, date, {'bucket_interval': bucket_interval})}"
         )
     )
+
+
+@tool(
+    "get_exchange_status",
+    description="""Live trading status for one exchange.
+INPUT: exchange (required, e.g. NSE, BSE, MCX).
+EXPECTED OUTPUT: {"data": {exchange, status, last_updated}}. Snapshot for
+context only — never persisted.""",
+)
+def get_exchange_status(exchange: str) -> str:
+    """Fetch exchange status; returns status + last update."""
+    return json.dumps(
+        api_get(f"/market/status?{urllib.parse.urlencode({'exchange': exchange})}")
+    )
+
+
+@tool(
+    "get_market_timings",
+    description="""Session start/end times per exchange for a date.
+INPUT: date "YYYY-MM-DD" (required).
+EXPECTED OUTPUT: {"data": [{exchange, start_time, end_time}]} (epoch ms).
+Snapshot for context only — never persisted.""",
+)
+def get_market_timings(date: str) -> str:
+    """Fetch market timings; returns per-exchange session bounds."""
+    return json.dumps(
+        api_get(f"/market/timings?{urllib.parse.urlencode({'date': date})}")
+    )
+
+
+@tool(
+    "get_market_holidays",
+    description="""Exchange holidays: full list, or one date.
+INPUT: date "YYYY-MM-DD" (optional; omit for the full list).
+EXPECTED OUTPUT: {"data": [{date, description, holiday_type, ...}]}
+(capped at 100 with truncation flag). Use for gap context — report
+holidays as context, never reclassify a validation verdict yourself.""",
+)
+def get_market_holidays(date: str = "") -> str:
+    """Fetch holidays; returns list (capped) for context."""
+    params = urllib.parse.urlencode({"date": date}) if date else ""
+    body = api_get(f"/market/holidays?{params}" if params else "/market/holidays")
+    if "error" in body:
+        return json.dumps(body)
+    rows = body.get("data", [])
+    return json.dumps(compact_rows(rows if isinstance(rows, list) else [], 100, "holidays"))

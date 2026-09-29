@@ -6,12 +6,15 @@ import {
   ErrorSchema,
   ExpiriesQuerySchema,
   ExpiriesResponseSchema,
+  ExchangeStatusQuerySchema,
   ExpiredCandlesQuerySchema,
   InstrumentSearchQuerySchema,
   InstrumentSearchResponseSchema,
   MarketBucketQuerySchema,
   MarketDataResponseSchema,
+  MarketHolidaysQuerySchema,
   MarketOiQuerySchema,
+  MarketTimingsQuerySchema,
   OptionContractsQuerySchema,
   OptionContractsResponseSchema,
   SmartlistQuerySchema,
@@ -202,6 +205,33 @@ const pcrRouteDef = createRoute({
   summary: 'Put-call ratio, spot price and intraday insights',
   request: { query: MarketBucketQuerySchema },
   responses: marketResponses('PCR data'),
+});
+
+const exchangeStatusRouteDef = createRoute({
+  method: 'get',
+  path: '/market/status',
+  tags: ['instruments'],
+  summary: 'Live trading status for an exchange (open/closed, last update)',
+  request: { query: ExchangeStatusQuerySchema },
+  responses: marketResponses('Exchange status'),
+});
+
+const marketTimingsRouteDef = createRoute({
+  method: 'get',
+  path: '/market/timings',
+  tags: ['instruments'],
+  summary: 'Session start/end times per exchange for a date',
+  request: { query: MarketTimingsQuerySchema },
+  responses: marketResponses('Market timings'),
+});
+
+const marketHolidaysRouteDef = createRoute({
+  method: 'get',
+  path: '/market/holidays',
+  tags: ['instruments'],
+  summary: 'Exchange holidays, optionally for one date (feeds gap analysis)',
+  request: { query: MarketHolidaysQuerySchema },
+  responses: marketResponses('Market holidays'),
 });
 
 const notConfigured = {
@@ -465,6 +495,33 @@ export function registerInstrumentRoutes(
       return c.json(missing ?? notConfigured, 503);
     }
     const data = await market.getPCR(oiParams(c.req.valid('query')));
+    return c.json({ data }, 200);
+  });
+
+  app.openapi(exchangeStatusRouteDef, async (c) => {
+    const missing = needMarket();
+    if (missing || !market) {
+      return c.json(missing ?? notConfigured, 503);
+    }
+    const data = await market.getExchangeStatus(c.req.valid('query').exchange);
+    return c.json({ data }, 200);
+  });
+
+  app.openapi(marketTimingsRouteDef, async (c) => {
+    const missing = needMarket();
+    if (missing || !market) {
+      return c.json(missing ?? notConfigured, 503);
+    }
+    const data = await market.getMarketTimings(c.req.valid('query').date);
+    return c.json({ data }, 200);
+  });
+
+  app.openapi(marketHolidaysRouteDef, async (c) => {
+    const missing = needMarket();
+    if (missing || !market) {
+      return c.json(missing ?? notConfigured, 503);
+    }
+    const data = await market.getMarketHolidays(c.req.valid('query').date);
     return c.json({ data }, 200);
   });
 }

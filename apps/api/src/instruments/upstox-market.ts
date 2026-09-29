@@ -18,7 +18,8 @@ export type OiParams = {
 
 /**
  * Upstox market-information client (v2): smartlists, OI, change-in-OI,
- * max pain, PCR. Discovery only — results are ephemeral, never stored.
+ * max pain, PCR, exchange status, market timings, market holidays.
+ * Discovery only — results are ephemeral, never stored.
  */
 export class UpstoxMarketClient {
   constructor(
@@ -78,6 +79,31 @@ export class UpstoxMarketClient {
     );
   }
 
+  async getExchangeStatus(exchange: string): Promise<unknown> {
+    return upstoxGet(
+      this.config,
+      `/market/status/${encodeURIComponent(exchange)}`,
+      'Get exchange status',
+    );
+  }
+
+  async getMarketTimings(date: string): Promise<unknown> {
+    return upstoxGet(
+      this.config,
+      `/market/timings/${encodeURIComponent(date)}`,
+      'Get market timings',
+    );
+  }
+
+  async getMarketHolidays(date?: string): Promise<unknown> {
+    const suffix = date ? `/${encodeURIComponent(date)}` : '';
+    return upstoxGet(
+      this.config,
+      `/market/holidays${suffix}`,
+      'Get market holidays',
+    );
+  }
+
   private smartlistQuery(params: SmartlistParams): string {
     const query = new URLSearchParams({
       asset_type: params.assetType,
@@ -115,4 +141,7 @@ export type MarketClient = {
   getChangeOI(params: OiParams): Promise<unknown>;
   getMaxPain(params: OiParams): Promise<unknown>;
   getPCR(params: OiParams): Promise<unknown>;
+  getExchangeStatus(exchange: string): Promise<unknown>;
+  getMarketTimings(date: string): Promise<unknown>;
+  getMarketHolidays(date?: string): Promise<unknown>;
 };

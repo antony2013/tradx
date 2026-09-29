@@ -220,6 +220,18 @@ class FakeMarketClient implements MarketClient {
   async getPCR(params: unknown): Promise<unknown> {
     return this.record('pcr', params);
   }
+
+  async getExchangeStatus(exchange: string): Promise<unknown> {
+    return this.record('status', exchange);
+  }
+
+  async getMarketTimings(date: string): Promise<unknown> {
+    return this.record('timings', date);
+  }
+
+  async getMarketHolidays(date?: string): Promise<unknown> {
+    return this.record('holidays', date);
+  }
 }
 
 describe('upstox market client', () => {
@@ -266,6 +278,39 @@ describe('upstox market client', () => {
       .catch((e: unknown) => e);
     expect((error as HistoricalError).code).toBe('AUTHENTICATION_ERROR');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fetches status, timings and holidays without leaking the token', async () => {
+    const fetchMock = stubFetch(async () =>
+      Response.json({ status: 'success', data: { exchange: 'NSE' } }),
+    );
+    const client = new UpstoxMarketClient(
+      {
+        baseUrl: 'https://api.upstox.com/v2',
+        accessToken: 'secret-token',
+        requestTimeoutMs: 5000,
+      },
+      nullLogger,
+    );
+
+    await client.getExchangeStatus('NSE');
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/market/status/NSE');
+
+    await client.getMarketTimings('2026-09-29');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      '/market/timings/2026-09-29',
+    );
+
+    await client.getMarketHolidays();
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/market/holidays');
+
+    await client.getMarketHolidays('2026-11-05');
+    const datedUrl = String(fetchMock.mock.calls[3]?.[0]);
+    expect(datedUrl).toContain('/market/holidays/2026-11-05');
+
+    for (const call of fetchMock.mock.calls) {
+      expect(String(call[0])).not.toContain('secret-token');
+    }
   });
 });
 
@@ -362,6 +407,9 @@ describe('instrument search endpoint', () => {
     expect(spec.paths['/market/change-oi']).toBeDefined();
     expect(spec.paths['/market/max-pain']).toBeDefined();
     expect(spec.paths['/market/pcr']).toBeDefined();
+    expect(spec.paths['/market/status']).toBeDefined();
+    expect(spec.paths['/market/timings']).toBeDefined();
+    expect(spec.paths['/market/holidays']).toBeDefined();
   });
 
   it('serves expiries and option contracts', async () => {
@@ -447,5 +495,30 @@ describe('instrument search endpoint', () => {
 
     const missing = await app.request('/market/oi?expiry=2026-09-29');
     expect(missing.status).toBe(400);
+  });
+
+  it('serves exchange status, timings and holidays', async () => {
+    const { app } = createFixture(new FakeSearchClient());
+
+    const status = await app.request('/market/status?exchange=NSE');
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toEqual({
+      data: { total_calls: 1 },
+    });
+
+    const timings = await app.request('/market/timings?date=2026-09-29');
+    expect(timings.status).toBe(200);
+
+    const holidays = await app.request('/market/holidays');
+    expect(holidays.status).toBe(200);
+
+    const dated = await app.request('/market/holidays?date=2026-11-05');
+    expect(dated.status).toBe(200);
+
+    const missingExchange = await app.request('/market/status');
+    expect(missingExchange.status).toBe(400);
+
+    const badDate = await app.request('/market/timings?date=29-09-2026');
+    expect(badDate.status).toBe(400);
   });
 });

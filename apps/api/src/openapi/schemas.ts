@@ -280,3 +280,21 @@ export const MarketBucketQuerySchema = MarketOiQuerySchema.extend({
 export const MarketDataResponseSchema = z
   .object({ data: z.unknown() })
   .openapi('MarketDataResponse');
+
+export const ExchangeStatusQuerySchema = z.object({
+  exchange: z.string().min(2).max(10).openapi({ example: 'NSE' }),
+});
+
+export const MarketTimingsQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).openapi({
+    example: '2026-09-29',
+  }),
+});
+
+export const MarketHolidaysQuerySchema = z.object({
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .openapi({ example: '2026-11-05' }),
+});

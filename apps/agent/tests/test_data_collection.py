@@ -96,6 +96,20 @@ def test_all_subagents_assigned() -> None:
     }
 
 
+def test_subagents_hide_filesystem_tools() -> None:
+    import sys
+
+    sys.path.insert(0, ".")
+    from data_collection.subagents import market_info_spec, market_status_spec
+
+    for spec in (market_info_spec(), market_status_spec()):
+        middlewares = spec.get("middleware", [])
+        assert len(middlewares) == 1
+        fs = middlewares[0]
+        assert type(fs).__name__ == "FilesystemMiddleware"
+        assert set(fs._enabled_tools) == {"read_file"}
+
+
 def _fake_ok(payload: dict):  # type: ignore[no-untyped-def]
     class FakeResp:
         def __enter__(self):  # type: ignore[no-untyped-def]
@@ -511,9 +525,19 @@ def test_main_agent_collects_in_bounded_calls_without_fs_tools(monkeypatch) -> N
     assert not (set(invoked) & fs_tools), invoked
     last = result["messages"][-1]
     assert "abc" in str(getattr(last, "content", ""))
-    # Bound schema still contains fs tools at call time (Slice 7 removes
-    # them from the schema); what matters here is none was CALLED.
+    # Bound schema (Slice 7): only data tools + task + read_file (the one
+    # fs tool the framework mandates; still denied at call time).
     assert "task" in set(bound_names)
+    assert set(bound_names) == {
+        "search_instruments",
+        "fetch_option_contracts",
+        "fetch_expiries",
+        "fetch_expired_option_contracts",
+        "fetch_expired_future_contracts",
+        "acquire_dataset",
+        "read_file",
+        "task",
+    }, bound_names
 
 def test_tools_return_errors_not_raise(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     import sys

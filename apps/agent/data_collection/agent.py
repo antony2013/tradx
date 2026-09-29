@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from deepagents import create_deep_agent
-from deepagents.middleware.filesystem import FilesystemPermission
 
 from settings import load_settings
 
@@ -17,17 +16,14 @@ from .expiry_tools import (
 from .history_tools import acquire_dataset
 from .prompt import SYSTEM_PROMPT
 from .search_tools import fetch_option_contracts, search_instruments
-from .subagents import market_info_spec, market_status_spec
+from .subagents import (
+    FILESYSTEM_DENY_ALL,
+    filesystem_locked_middleware,
+    market_info_spec,
+    market_status_spec,
+)
 
 AGENT_NAME = "data_collection"
-
-# The framework adds built-in filesystem tools by default. This agent must
-# never touch host files: deny all filesystem operations explicitly.
-FILESYSTEM_DENY_ALL = FilesystemPermission(
-    operations=["read", "write"],
-    paths=["/"],
-    mode="deny",
-)
 
 
 def resolve_model(spec: Any | None) -> Any | None:
@@ -71,6 +67,11 @@ def build_data_collection_agent(model: Any | None = None):  # type: ignore[no-un
             acquire_dataset,
         ],
         system_prompt=SYSTEM_PROMPT,
+        # Locked fs middleware REPLACES the default by name: only read_file
+        # stays in the model schema (framework minimum), still denied at
+        # call time. permissions=[...] is kept so subagents inherit the
+        # same deny rule when their specs omit permissions.
+        middleware=[filesystem_locked_middleware()],  # type: ignore[list-item]  # stubs lag runtime generics
         subagents=[
             market_info_spec(),
             market_status_spec(),

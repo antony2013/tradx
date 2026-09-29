@@ -30,6 +30,7 @@ from .search_tools import fetch_option_contracts, search_instruments
 from .subagents import (
     MARKET_INFO_NAME,
     MARKET_STATUS_NAME,
+    filesystem_locked_middleware,
     market_info_spec,
     market_status_spec,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "fetch_expiries",
     "fetch_historical",
     "fetch_option_contracts",
+    "filesystem_locked_middleware",
     "get_change_oi",
     "get_exchange_status",
     "get_futures_smartlist",

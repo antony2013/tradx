@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import cast
 
+from deepagents.middleware.filesystem import (
+    FilesystemMiddleware,
+    FilesystemPermission,
+)
 from deepagents.middleware.subagents import SubAgent
 
 from .market_tools import (
@@ -28,6 +32,30 @@ Core rules (always apply): never invent or fabricate data — only report
 tool-verified values; never trade, analyse, or recommend; on error, fix
 parameters from the tool hint and retry once, then report honestly."""
 
+# Filesystem is denied at build time (paths ["/"]). Lives here so both the
+# main agent and every subagent share the identical rule object.
+FILESYSTEM_DENY_ALL = FilesystemPermission(
+    operations=["read", "write"],
+    paths=["/"],
+    mode="deny",
+)
+
+
+def filesystem_locked_middleware() -> FilesystemMiddleware:
+    """FilesystemMiddleware exposing the smallest allowed schema.
+
+    The framework requires read_file in any allowlist, so one fs tool
+    remains VISIBLE but the deny rule above still blocks it at call time.
+    Defense in depth: schema-hiding cuts per-call bytes; the permission
+    blocks any attempt. Replaces the default middleware by name.
+    (_permissions is private in 0.7.19; it mirrors what
+    create_deep_agent(permissions=[...]) wires into the default instance.)
+    """
+    return FilesystemMiddleware(
+        tools=["read_file"],
+        _permissions=[FILESYSTEM_DENY_ALL],
+    )  # type: ignore[call-arg]  # installed stubs lag 0.7.19 runtime kwargs
+
 
 def market_info_spec() -> SubAgent:
     # cast: installed stubs lag the runtime TypedDict (which has "mode").
@@ -51,9 +79,10 @@ Rules:
 4. These are point-in-time snapshots for context, not signals. Never
    present them as trade recommendations.
 """ + CORE_RULES,
-            "mode": "isolated",
-            "tools": [
-                get_options_smartlist,
+        "mode": "isolated",
+        "middleware": [filesystem_locked_middleware()],
+        "tools": [
+            get_options_smartlist,
                 get_futures_smartlist,
                 get_oi,
                 get_change_oi,
@@ -88,9 +117,10 @@ Rules:
 5. Snapshots only, never persisted. Never present them as trade
    recommendations.
 """ + CORE_RULES,
-            "mode": "isolated",
-            "tools": [
-                get_exchange_status,
+        "mode": "isolated",
+        "middleware": [filesystem_locked_middleware()],
+        "tools": [
+            get_exchange_status,
                 get_market_timings,
                 get_market_holidays,
             ],

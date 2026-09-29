@@ -7,6 +7,8 @@ from typing import Any
 from deepagents import create_deep_agent
 from deepagents.middleware.filesystem import FilesystemPermission
 
+from settings import load_settings
+
 from .prompt import SYSTEM_PROMPT
 from .subagents import (
     expiry_fetcher_spec,
@@ -16,8 +18,6 @@ from .subagents import (
 )
 
 AGENT_NAME = "data_collection"
-
-NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 # The framework adds built-in filesystem tools by default. This agent must
 # never touch host files: deny all filesystem operations explicitly.
@@ -46,7 +46,7 @@ def resolve_model(spec: Any | None) -> Any | None:
         raise RuntimeError("NVIDIA_API_KEY is not set; cannot use nvidia/* model")
     return ChatOpenAI(
         model=spec,
-        base_url=NVIDIA_BASE_URL,
+        base_url=load_settings().nvidia_base_url,
         api_key=SecretStr(os.environ["NVIDIA_API_KEY"]),
         temperature=0.0,
     )

@@ -55,10 +55,20 @@ const envSchema = z.object({
   HISTORICAL_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
   HISTORICAL_INITIAL_RETRY_DELAY_MS: z.coerce.number().int().min(1).default(500),
   HISTORICAL_MAX_RETRY_DELAY_MS: z.coerce.number().int().min(1).default(8000),
-  HISTORICAL_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1).default(15000),
+  // Shared Upstox HTTP timeout (historical, search, expiries, market).
+  // HISTORICAL_REQUEST_TIMEOUT_MS is a deprecated alias: honored when the
+  // new name is unset so existing deployments keep their tuned value.
+  UPSTOX_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1).optional(),
+  HISTORICAL_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1).optional(),
 });
 
-export type AppConfig = z.infer<typeof envSchema> & {
+export const DEFAULT_UPSTOX_REQUEST_TIMEOUT_MS = 15000;
+
+export type AppConfig = Omit<
+  z.infer<typeof envSchema>,
+  'UPSTOX_REQUEST_TIMEOUT_MS' | 'HISTORICAL_REQUEST_TIMEOUT_MS'
+> & {
+  requestTimeoutMs: number;
   databasePath: string;
   projectRoot: string;
 };
@@ -88,8 +98,20 @@ export function loadConfig(
     ? parsed.data.DATABASE_PATH
     : resolve(projectRoot, parsed.data.DATABASE_PATH);
 
+  const requestTimeoutMs =
+    parsed.data.UPSTOX_REQUEST_TIMEOUT_MS ??
+    parsed.data.HISTORICAL_REQUEST_TIMEOUT_MS ??
+    DEFAULT_UPSTOX_REQUEST_TIMEOUT_MS;
+
+  const {
+    UPSTOX_REQUEST_TIMEOUT_MS: _newTimeout,
+    HISTORICAL_REQUEST_TIMEOUT_MS: _legacyTimeout,
+    ...rest
+  } = parsed.data;
+
   return {
-    ...parsed.data,
+    ...rest,
+    requestTimeoutMs,
     databasePath,
     projectRoot,
   };

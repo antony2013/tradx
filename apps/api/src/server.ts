@@ -109,7 +109,7 @@ export const app = createApp({
       maxRetries: config.HISTORICAL_MAX_RETRIES,
       initialRetryDelayMs: config.HISTORICAL_INITIAL_RETRY_DELAY_MS,
       maxRetryDelayMs: config.HISTORICAL_MAX_RETRY_DELAY_MS,
-      requestTimeoutMs: config.HISTORICAL_REQUEST_TIMEOUT_MS,
+      requestTimeoutMs: config.requestTimeoutMs,
     },
     logger,
   ),
@@ -117,7 +117,7 @@ export const app = createApp({
     {
       baseUrl: 'https://api.upstox.com/v2',
       accessToken: config.UPSTOX_ACCESS_TOKEN ?? '',
-      requestTimeoutMs: config.HISTORICAL_REQUEST_TIMEOUT_MS,
+      requestTimeoutMs: config.requestTimeoutMs,
     },
     logger,
   ),
@@ -125,7 +125,7 @@ export const app = createApp({
     {
       baseUrl: 'https://api.upstox.com/v2',
       accessToken: config.UPSTOX_ACCESS_TOKEN ?? '',
-      requestTimeoutMs: config.HISTORICAL_REQUEST_TIMEOUT_MS,
+      requestTimeoutMs: config.requestTimeoutMs,
     },
     logger,
   ),
@@ -133,7 +133,7 @@ export const app = createApp({
     {
       baseUrl: 'https://api.upstox.com/v2',
       accessToken: config.UPSTOX_ACCESS_TOKEN ?? '',
-      requestTimeoutMs: config.HISTORICAL_REQUEST_TIMEOUT_MS,
+      requestTimeoutMs: config.requestTimeoutMs,
     },
     logger,
   ),

@@ -101,6 +101,7 @@ export function encodeFeedResponse(input: {
   type?: number;
   feeds?: Record<string, Uint8Array>;
   currentTs?: number;
+  marketInfo?: Uint8Array;
 }): Uint8Array {
   const parts: Uint8Array[] = [];
   parts.push(encodeVarintField(1, input.type ?? 1));
@@ -109,6 +110,37 @@ export function encodeFeedResponse(input: {
   }
   if (input.currentTs !== undefined) {
     parts.push(encodeVarintField(3, input.currentTs));
+  }
+  if (input.marketInfo !== undefined) {
+    parts.push(encodeLenField(4, input.marketInfo));
+  }
+  return concat(parts);
+}
+
+export function encodeMarketInfo(input: {
+  segmentStatus?: Record<string, number>;
+  casMarketStatus?: Record<string, { status: string; updatedTime: number }>;
+}): Uint8Array {
+  const parts: Uint8Array[] = [];
+  for (const [key, value] of Object.entries(input.segmentStatus ?? {})) {
+    parts.push(
+      encodeLenField(
+        1,
+        concat([encodeStringField(1, key), encodeVarintField(2, value)]),
+      ),
+    );
+  }
+  for (const [key, info] of Object.entries(input.casMarketStatus ?? {})) {
+    const statusInfo = concat([
+      encodeStringField(1, info.status),
+      encodeVarintField(2, info.updatedTime),
+    ]);
+    parts.push(
+      encodeLenField(
+        2,
+        concat([encodeStringField(1, key), encodeLenField(2, statusInfo)]),
+      ),
+    );
   }
   return concat(parts);
 }

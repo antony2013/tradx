@@ -379,76 +379,63 @@ function decodeFeed(bytes: Uint8Array): Record<string, unknown> {
   return result;
 }
 
-function decodeStringEnumMap(
+function decodeStringEnumMapEntry(
   bytes: Uint8Array,
-): Record<string, number> {
-  const result: Record<string, number> = {};
-  parseFields(bytes, (fieldNumber, wireType, reader) => {
-    if (fieldNumber !== 2 || wireType !== 2) {
-      reader.skip(wireType);
-      return;
-    }
-    const entryBytes = reader.readBytes();
-    let key: string | undefined;
-    let value: number | undefined;
-    parseFields(entryBytes, (entryField, entryWire, entryReader) => {
-      if (entryField === 1 && entryWire === 2) {
-        key = entryReader.readString();
-      } else if (entryField === 2 && entryWire === 0) {
-        value = entryReader.readVarintNumber();
-      } else {
-        entryReader.skip(entryWire);
-      }
-    });
-    if (key !== undefined && value !== undefined) {
-      result[key] = value;
+  into: Record<string, number>,
+): void {
+  let key: string | undefined;
+  let value: number | undefined;
+  parseFields(bytes, (entryField, entryWire, entryReader) => {
+    if (entryField === 1 && entryWire === 2) {
+      key = entryReader.readString();
+    } else if (entryField === 2 && entryWire === 0) {
+      value = entryReader.readVarintNumber();
+    } else {
+      entryReader.skip(entryWire);
     }
   });
-  return result;
+  if (key !== undefined && value !== undefined) {
+    into[key] = value;
+  }
 }
 
-function decodeStatusMap(
+function decodeStatusMapEntry(
   bytes: Uint8Array,
-): Record<string, Record<string, unknown>> {
-  const result: Record<string, Record<string, unknown>> = {};
-  parseFields(bytes, (fieldNumber, wireType, reader) => {
-    if (fieldNumber !== 2 || wireType !== 2) {
-      reader.skip(wireType);
-      return;
-    }
-    const entryBytes = reader.readBytes();
-    let key: string | undefined;
-    let value: Record<string, unknown> | undefined;
-    parseFields(entryBytes, (entryField, entryWire, entryReader) => {
-      if (entryField === 1 && entryWire === 2) {
-        key = entryReader.readString();
-      } else if (entryField === 2 && entryWire === 2) {
-        value = decodeStatusInfo(entryReader.readBytes());
-      } else {
-        entryReader.skip(entryWire);
-      }
-    });
-    if (key !== undefined && value) {
-      result[key] = value;
+  into: Record<string, Record<string, unknown>>,
+): void {
+  let key: string | undefined;
+  let value: Record<string, unknown> | undefined;
+  parseFields(bytes, (entryField, entryWire, entryReader) => {
+    if (entryField === 1 && entryWire === 2) {
+      key = entryReader.readString();
+    } else if (entryField === 2 && entryWire === 2) {
+      value = decodeStatusInfo(entryReader.readBytes());
+    } else {
+      entryReader.skip(entryWire);
     }
   });
-  return result;
+  if (key !== undefined && value) {
+    into[key] = value;
+  }
 }
 
 function decodeMarketInfo(bytes: Uint8Array): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+  const segmentStatus: Record<string, number> = {};
+  const casMarketStatus: Record<string, Record<string, unknown>> = {};
+  const preOpenSessionStatus: Record<string, Record<string, unknown>> = {};
   parseFields(bytes, (fieldNumber, wireType, reader) => {
+    // Each map occurrence on the wire is exactly one entry — accumulate.
     if (fieldNumber === 1 && wireType === 2) {
-      result.segmentStatus = decodeStringEnumMap(reader.readBytes());
+      decodeStringEnumMapEntry(reader.readBytes(), segmentStatus);
     } else if (fieldNumber === 2 && wireType === 2) {
-      result.casMarketStatus = decodeStatusMap(reader.readBytes());
+      decodeStatusMapEntry(reader.readBytes(), casMarketStatus);
     } else if (fieldNumber === 3 && wireType === 2) {
-      result.preOpenSessionStatus = decodeStatusMap(reader.readBytes());
+      decodeStatusMapEntry(reader.readBytes(), preOpenSessionStatus);
     } else {
       reader.skip(wireType);
     }
   });
-  return result;
+  return { segmentStatus, casMarketStatus, preOpenSessionStatus };
 }
 
 function decodeFeedMapEntry(

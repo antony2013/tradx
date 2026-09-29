@@ -30,4 +30,20 @@ describe('configuration', () => {
       loadConfig({ PORT: '70000', DATABASE_PATH: 'data/research.db' }),
     ).toThrow(EnvValidationError);
   });
+
+  it('resolves the shared Upstox timeout with legacy fallback', () => {
+    const base = { DATABASE_PATH: 'data/research.db' };
+    expect(loadConfig(base).requestTimeoutMs).toBe(15000);
+    expect(
+      loadConfig({ ...base, HISTORICAL_REQUEST_TIMEOUT_MS: '5000' })
+        .requestTimeoutMs,
+    ).toBe(5000);
+    expect(
+      loadConfig({
+        ...base,
+        UPSTOX_REQUEST_TIMEOUT_MS: '7000',
+        HISTORICAL_REQUEST_TIMEOUT_MS: '5000',
+      }).requestTimeoutMs,
+    ).toBe(7000);
+  });
 });

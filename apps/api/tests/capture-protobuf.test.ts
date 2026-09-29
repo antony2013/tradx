@@ -4,6 +4,7 @@ import {
   encodeFeed,
   encodeFeedResponse,
   encodeLtpc,
+  encodeMarketInfo,
 } from './encode-feed';
 
 describe('protobuf feed decoding', () => {
@@ -58,5 +59,26 @@ describe('protobuf feed decoding', () => {
     expect(() =>
       decodeFeedResponse(new Uint8Array([0x12, 0x05, 0x01])),
     ).toThrow();
+  });
+
+  it('decodes market-info maps with one entry per wire occurrence', () => {
+    const bytes = encodeFeedResponse({
+      type: 2,
+      marketInfo: encodeMarketInfo({
+        segmentStatus: { NSE_EQ: 2, NSE_FO: 3 },
+        casMarketStatus: {
+          NSE: { status: 'NORMAL_OPEN', updatedTime: 123 },
+        },
+      }),
+    });
+
+    const { response, issues } = decodeFeedResponse(bytes);
+
+    expect(issues).toHaveLength(0);
+    expect(response.marketInfo).toEqual({
+      segmentStatus: { NSE_EQ: 2, NSE_FO: 3 },
+      casMarketStatus: { NSE: { status: 'NORMAL_OPEN', updatedTime: '123' } },
+      preOpenSessionStatus: {},
+    });
   });
 });

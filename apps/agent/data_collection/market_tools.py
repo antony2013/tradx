@@ -29,7 +29,8 @@ def _oi_params(
 INPUT: asset_type (required: INDEX|STOCK|COMMODITY), category (required, e.g.
 TOP_TRADED, MOST_ACTIVE, OI_GAINERS, OI_LOSERS), page_number/page_size
 (optional, default 1/20).
-EXPECTED OUTPUT: {"data": {smartlist rows, page info}}. Discovery only.""",
+EXPECTED OUTPUT: {"data": {smartlist rows, page info}}. Discovery only —
+snapshots are never persisted to any dataset.""",
 )
 def get_options_smartlist(
     asset_type: str, category: str, page_number: int = 1, page_size: int = 20
@@ -51,7 +52,8 @@ def get_options_smartlist(
     description="""Ranked futures contracts by category.
 INPUT: asset_type (required: INDEX|STOCK|COMMODITY), category (required),
 page_number/page_size (optional, default 1/20).
-EXPECTED OUTPUT: {"data": {smartlist rows, page info}}. Discovery only.""",
+EXPECTED OUTPUT: {"data": {smartlist rows, page info}}. Discovery only —
+snapshots are never persisted to any dataset.""",
 )
 def get_futures_smartlist(
     asset_type: str, category: str, page_number: int = 1, page_size: int = 20

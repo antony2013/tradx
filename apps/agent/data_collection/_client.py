@@ -8,12 +8,13 @@ caps that keep large upstream payloads out of model context.
 from __future__ import annotations
 
 import json
-import os
 import urllib.error
 import urllib.request
 from typing import Any
 
-API_BASE = os.environ.get("TRADX_API_URL", "http://localhost:3000").rstrip("/")
+from settings import load_settings
+
+API_BASE = load_settings().tradx_api_url.rstrip("/")
 
 LONG_TIMEOUT = 300
 

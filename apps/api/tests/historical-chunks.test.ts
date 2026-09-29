@@ -95,6 +95,15 @@ describe('request validation', () => {
     expect(parseInterval('1week')).toEqual({ unit: 'weeks', interval: 1 });
     expect(parseInterval('1month')).toEqual({ unit: 'months', interval: 1 });
   });
+
+  it('accepts plain day/week/month as Upstox tokens for value 1', () => {
+    expect(parseInterval('day')).toEqual({ unit: 'days', interval: 1 });
+    expect(parseInterval('week')).toEqual({ unit: 'weeks', interval: 1 });
+    expect(parseInterval('month')).toEqual({ unit: 'months', interval: 1 });
+    expect(parseInterval('DAY')).toEqual({ unit: 'days', interval: 1 });
+    expect(() => parseInterval('0day')).toThrow(HistoricalError);
+    expect(() => parseInterval('2days')).toThrow(HistoricalError);
+  });
 });
 
 describe('date-range chunking', () => {

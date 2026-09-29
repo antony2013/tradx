@@ -9,7 +9,9 @@ import type {
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const EXPIRY_SUFFIX_PATTERN = /^\d{2}-\d{2}-\d{4}$/;
-const INTERVAL_PATTERN = /^(\d+)(minutes?|hours?|day|week|month)$/;
+// Plain day/week/month (Upstox's own tokens) mean value 1; minutes/hours
+// always need an explicit number.
+const INTERVAL_PATTERN = /^(\d*)(minutes?|hours?|day|week|month)$/;
 
 const requestShape = z.object({
   instrumentKey: z.string().trim().min(1),
@@ -39,7 +41,7 @@ export function parseInterval(raw: string): {
     );
   }
 
-  const value = Number(match[1]);
+  const value = match[1] === '' ? 1 : Number(match[1]);
   const unitWord = match[2] as string;
   const unit: HistoricalUnit =
     unitWord === 'day'

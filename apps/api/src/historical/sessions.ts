@@ -43,12 +43,25 @@ function parseDay(value: string): number {
 
 const DAY_MS = 86400000;
 
-/** All Mon–Fri dates in [from, to]. No holiday calendar (Stage 2 limit). */
-export function expectedWeekdayDates(from: string, to: string): string[] {
+const NO_HOLIDAYS: ReadonlySet<string> = new Set();
+
+/**
+ * All Mon–Fri dates in [from, to], minus exchange holidays.
+ * Holidays come from the /market/holidays-fed provider (never hardcoded);
+ * an empty set preserves the plain-weekday behavior.
+ */
+export function expectedWeekdayDates(
+  from: string,
+  to: string,
+  holidays: ReadonlySet<string> = NO_HOLIDAYS,
+): string[] {
   const dates: string[] = [];
   for (let t = parseDay(from); t <= parseDay(to); t += DAY_MS) {
     if (isWeekday(t + DAY_MS / 2)) {
-      dates.push(new Date(t).toISOString().slice(0, 10));
+      const date = new Date(t).toISOString().slice(0, 10);
+      if (!holidays.has(date)) {
+        dates.push(date);
+      }
     }
   }
   return dates;
@@ -69,10 +82,11 @@ export function expectedIntradaySlots(
   unit: HistoricalUnit,
   interval: number,
   session: SessionTemplate = DEFAULT_SESSION,
+  holidays: ReadonlySet<string> = NO_HOLIDAYS,
 ): number[] {
   const stepMin = unit === 'minutes' ? interval : interval * 60;
   const slots: number[] = [];
-  for (const date of expectedWeekdayDates(from, to)) {
+  for (const date of expectedWeekdayDates(from, to, holidays)) {
     const midnight = istMidnightUtcMs(date);
     for (let m = session.openMin; m <= session.closeMin; m += stepMin) {
       slots.push(midnight + m * 60000);
@@ -134,11 +148,12 @@ export function expectedSessions(
   unit: HistoricalUnit,
   interval: number,
   session: SessionTemplate = DEFAULT_SESSION,
+  holidays: ReadonlySet<string> = NO_HOLIDAYS,
 ): ExpectedSet {
   if (unit === 'minutes' || unit === 'hours') {
     return {
       kind: 'slots',
-      values: expectedIntradaySlots(from, to, unit, interval, session),
+      values: expectedIntradaySlots(from, to, unit, interval, session, holidays),
       keyOf: (ts) => ts,
     };
   }
@@ -158,7 +173,7 @@ export function expectedSessions(
   }
   return {
     kind: 'dates',
-    values: expectedWeekdayDates(from, to),
+    values: expectedWeekdayDates(from, to, holidays),
     keyOf: istDateString,
   };
 }

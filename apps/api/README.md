@@ -132,7 +132,9 @@ intraday; week/month buckets) → completeness score → `VALID` / `INVALID` /
 replaced on re-run). Verdict rules: any OHLC/timestamp violation or
 conflicting rows → `INVALID`; otherwise gaps → `INCOMPLETE`; else `VALID`.
 
-Known limits: no exchange-holiday calendar (holidays appear as gaps);
+Known limits: holiday-aware via `/market/holidays` (closed dates leave the
+expected set; report carries `holiday_calendar: applied | unavailable` —
+unavailable falls back to plain weekdays and says so, never silently);
 per-exchange intraday templates are a TODO (NSE cash default);
 duplicate/conflicting rows are structurally blocked by
 UNIQUE(dataset_id, timestamp), so those detectors are defense-in-depth,

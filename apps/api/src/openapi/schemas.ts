@@ -172,6 +172,7 @@ export const ValidationReportSchema = z
     session_template: z
       .object({ openMin: z.number(), closeMin: z.number() })
       .nullable(),
+    holiday_calendar: z.enum(['applied', 'unavailable']),
     notes: z.array(z.string()),
     schema_version: z.string(),
     created_at: z.number(),

@@ -6,11 +6,13 @@ import {
   prepareHistoricalDataset,
   readHistoricalDataset,
 } from '../historical/service';
+import { createUpstoxHolidayProvider } from '../historical/holidays';
 import {
   readValidationReport,
   runValidation,
 } from '../historical/validation';
 import type { HistoricalClient } from '../historical/types';
+import type { MarketClient } from '../instruments/upstox-market';
 import type { Logger } from '../lib/logger';
 import {
   ErrorSchema,
@@ -25,6 +27,7 @@ export type HistoricalDeps = {
   database: DatabaseContainer;
   client: HistoricalClient;
   logger: Logger;
+  market?: MarketClient | null;
 };
 
 const createRouteDef = createRoute({
@@ -155,7 +158,13 @@ export function registerHistoricalRoutes(
   app.openapi(validateRouteDef, async (c) => {
     const { datasetId } = c.req.valid('param');
     const report = await runValidation(
-      { db: deps.database.db, logger: deps.logger },
+      {
+        db: deps.database.db,
+        logger: deps.logger,
+        holidays: deps.market
+          ? createUpstoxHolidayProvider(deps.market, deps.logger)
+          : undefined,
+      },
       datasetId,
     );
     if (!report) {

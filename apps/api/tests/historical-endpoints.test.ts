@@ -209,6 +209,8 @@ describe('historical endpoints', () => {
     const report = (await run.json()) as Record<string, unknown>;
     // One weekday present out of five expected.
     expect(report).toMatchObject({ verdict: 'INCOMPLETE', candle_count: 1 });
+    // No market client in this fixture: calendar unavailable, never silent.
+    expect(report).toMatchObject({ holiday_calendar: 'unavailable' });
 
     const read = await app.request(`/historical/datasets/${id}/validation`);
     expect(read.status).toBe(200);

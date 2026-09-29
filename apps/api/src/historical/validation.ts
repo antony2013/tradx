@@ -16,6 +16,10 @@ import {
   expectedSessions,
   type SessionTemplate,
 } from './sessions';
+import type {
+  HolidayCalendarState,
+  HolidayProvider,
+} from './holidays';
 import type { HistoricalUnit, NormalizedCandle } from './types';
 
 export type IntegrityVerdict = 'VALID' | 'INVALID' | 'INCOMPLETE';
@@ -39,6 +43,7 @@ export type IntegrityReport = {
   gaps: Array<string | number>;
   unexpected_sample: Array<string | number>;
   session_template: SessionTemplate | null;
+  holiday_calendar: HolidayCalendarState;
   notes: string[];
   schema_version: string;
   created_at: number;
@@ -51,6 +56,7 @@ const MAX_STORED_ITEMS = 200;
 export type ValidationDeps = {
   db: DatabaseContainer['db'];
   logger: Logger;
+  holidays?: HolidayProvider;
 };
 
 /**
@@ -95,12 +101,27 @@ export async function runValidation(
   const conflicts = duplicates.filter((group) => group.conflicting);
 
   const unit = dataset.unit as HistoricalUnit;
+  // Holiday-aware expectations: closed dates leave the expected set, so a
+  // complete range containing a holiday validates VALID. Provider failure
+  // falls back to plain weekdays and says so in the report — never silent.
+  const holiday = deps.holidays
+    ? await deps.holidays.getClosedDates(
+        dataset.requestedFrom,
+        dataset.requestedTo,
+        dataset.instrumentKey,
+      )
+    : {
+        dates: new Set<string>(),
+        calendar: 'unavailable' as HolidayCalendarState,
+        note: 'No holiday provider configured; validated against plain weekdays, holidays appear as gaps.',
+      };
   const expected = expectedSessions(
     dataset.requestedFrom,
     dataset.requestedTo,
     unit,
     dataset.interval,
     session,
+    holiday.dates,
   );
   const present = new Set<string | number>();
   for (const candle of candles) {
@@ -128,9 +149,18 @@ export async function runValidation(
 
   const notes: string[] = [];
   if (unit === 'days') {
-    notes.push(
-      'Expected sessions are Mon-Fri calendar days; no exchange-holiday calendar exists, so holidays appear as gaps.',
-    );
+    if (holiday.calendar === 'applied') {
+      notes.push(
+        `Holiday calendar applied: ${holiday.dates.size} exchange-closed date(s) excluded from expectations.`,
+      );
+    } else {
+      notes.push(
+        'Expected sessions are Mon-Fri calendar days; no exchange-holiday calendar was available, so holidays appear as gaps.',
+      );
+    }
+    if (holiday.note) {
+      notes.push(holiday.note);
+    }
   }
   if (unit === 'minutes' || unit === 'hours') {
     notes.push(
@@ -162,6 +192,7 @@ export async function runValidation(
     unexpected_sample: unexpected.slice(0, 5),
     session_template:
       unit === 'minutes' || unit === 'hours' ? session : null,
+    holiday_calendar: holiday.calendar,
     notes,
     schema_version: VALIDATION_SCHEMA_VERSION,
     created_at: now,

@@ -60,6 +60,7 @@ export function createApp(dependencies: AppDependencies): OpenAPIHono {
     database,
     client: historicalClient,
     logger,
+    market: marketClient,
   });
   registerInstrumentRoutes(app, { search: searchClient, expiries: expiriesClient, market: marketClient });
   app.doc('/openapi.json', {

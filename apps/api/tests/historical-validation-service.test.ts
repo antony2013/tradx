@@ -46,12 +46,13 @@ async function seedDataset(
     close: number;
     volume: number;
   }>,
+  overrides: { instrumentKey?: string; from?: string; to?: string } = {},
 ) {
   await database.db.insert(historicalDatasets).values({
     datasetId,
-    instrumentKey: 'NSE_INDEX|Nifty 50',
-    requestedFrom: '2026-09-14',
-    requestedTo: '2026-09-18',
+    instrumentKey: overrides.instrumentKey ?? 'NSE_INDEX|Nifty 50',
+    requestedFrom: overrides.from ?? '2026-09-14',
+    requestedTo: overrides.to ?? '2026-09-18',
     unit: 'days',
     interval: 1,
     source: 'upstox',
@@ -160,8 +161,7 @@ describe('validation service', () => {
     expect(report?.ohlc_issue_count).toBeGreaterThan(0);
   });
 
-  it('returns null for unknown datasets and replaces reports on re-run', async () => {
-    const { database } = createFixture();
+  it('returns null for unknown datasets and replaces reports on re-run', async () => {    const { database } = createFixture();
     expect(
       await runValidation({ db: database.db, logger: nullLogger }, 'nope'),
     ).toBeNull();
@@ -180,5 +180,102 @@ describe('validation service', () => {
     expect(second?.created_at).toBeGreaterThanOrEqual(
       first?.created_at as number,
     );
+  });
+
+  it('verdicts VALID when the only missing day is an exchange holiday', async () => {
+    const { database } = createFixture();
+    // Mon 2026-09-28 .. Fri 2026-10-02; Fri is Gandhi Jayanti (real 2026
+    // NSE holiday). Data covers Mon-Thu only.
+    await seedDataset(
+      database,
+      'd-holiday',
+      [
+        clean('2026-09-28'),
+        clean('2026-09-29'),
+        clean('2026-09-30'),
+        clean('2026-10-01'),
+      ],
+      { from: '2026-09-28', to: '2026-10-02' },
+    );
+
+    const holidays = {
+      getClosedDates: async () => ({
+        dates: new Set(['2026-10-02']),
+        calendar: 'applied' as const,
+      }),
+    };
+    const report = await runValidation(
+      { db: database.db, logger: nullLogger, holidays },
+      'd-holiday',
+    );
+    expect(report?.verdict).toBe('VALID');
+    expect(report?.completeness).toBe(1);
+    expect(report?.gap_count).toBe(0);
+    expect(report?.holiday_calendar).toBe('applied');
+    expect(report?.notes.some((n) => n.includes('2026-10-02') || n.includes('1 exchange-closed'))).toBe(true);
+  });
+
+  it('still verdicts INCOMPLETE for a real weekday gap with holidays applied', async () => {
+    const { database } = createFixture();
+    await seedDataset(
+      database,
+      'd-real-gap',
+      [clean('2026-09-28'), clean('2026-09-30'), clean('2026-10-01')],
+      { from: '2026-09-28', to: '2026-10-02' },
+    );
+
+    const holidays = {
+      getClosedDates: async () => ({
+        dates: new Set(['2026-10-02']),
+        calendar: 'applied' as const,
+      }),
+    };
+    const report = await runValidation(
+      { db: database.db, logger: nullLogger, holidays },
+      'd-real-gap',
+    );
+    expect(report?.verdict).toBe('INCOMPLETE');
+    expect(report?.gaps).toEqual(['2026-09-29']);
+  });
+
+  it('falls back to weekdays with a note when the provider fails', async () => {
+    const { database } = createFixture();
+    await seedDataset(
+      database,
+      'd-nocal',
+      [
+        clean('2026-09-28'),
+        clean('2026-09-29'),
+        clean('2026-09-30'),
+        clean('2026-10-01'),
+      ],
+      { from: '2026-09-28', to: '2026-10-02' },
+    );
+
+    const failing = {
+      getClosedDates: async () => ({
+        dates: new Set<string>(),
+        calendar: 'unavailable' as const,
+        note: 'Holiday calendar unavailable (test); plain weekdays used.',
+      }),
+    };
+    const report = await runValidation(
+      { db: database.db, logger: nullLogger, holidays: failing },
+      'd-nocal',
+    );
+    expect(report?.verdict).toBe('INCOMPLETE');
+    expect(report?.holiday_calendar).toBe('unavailable');
+    expect(report?.notes.some((n) => n.includes('unavailable'))).toBe(true);
+  });
+
+  it('marks unavailable when no provider is configured', async () => {
+    const { database } = createFixture();
+    await seedDataset(database, 'd-noprov', [clean('2026-09-14')]);
+
+    const report = await runValidation(
+      { db: database.db, logger: nullLogger },
+      'd-noprov',
+    );
+    expect(report?.holiday_calendar).toBe('unavailable');
   });
 });

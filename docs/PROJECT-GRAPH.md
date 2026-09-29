@@ -117,7 +117,7 @@ resolves through `settings.py`.
 | `historical_datasets`, `historical_chunks`, `historical_raw_responses`, `historical_candles` | historical/service.ts |
 | `validation_reports` | historical/validation.ts |
 
-## 6. Tests — 133 API (bun + vitest, 20 files) + 18 agent (pytest)
+## 6. Tests — 133 API (bun + vitest, 20 files) + 21 agent (pytest)
 
 API: capture (protobuf incl. market-info map regression, batch, queue,
 store, service, subscriptions, manual start/stop lifecycle) · historical
@@ -125,9 +125,11 @@ store, service, subscriptions, manual start/stop lifecycle) · historical
 market (search/expiries/contracts/status/timings/holidays, token hygiene,
 auth mapping) · app/config (timeout precedence)/database. `tsc` clean.
 
-Agent: prompt sync/boundaries, subagent toolsets (2), tool URL-forwarding
-+ error-as-result, caps, filesystem deny, settings defaults/override.
-`ruff` + `mypy` clean.
+Agent: prompt contracts (scope refusal, tool-existence, arg vocab),
+recording-model run (≤4 LLM calls, no fs/task calls), subagent toolsets +
+fs-hiding (2), tool URL-forwarding + error-as-result, caps, filesystem
+deny, explicit-model + subagent-model override, settings
+defaults/override. `ruff` + `mypy` clean.
 
 ## 7. Key contracts
 

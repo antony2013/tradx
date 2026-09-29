@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "deepagents>=0.7.19",
+  "langchain-core>=1.6.5",
   "langchain-openai>=1.6.6",
   "pydantic>=2.13.5",
   "pydantic-settings>=2.15.0",
@@ -14,6 +15,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+  "mypy>=2.3.1",
   "pytest>=9.1.1",
   "ruff>=0.16.9",
 ]

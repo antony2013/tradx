@@ -29,8 +29,8 @@
 
 ---
 
-### Added by me (not in your original list, flag if you disagree/want removed)
-- **No silent scope creep**: if a task looks bigger than what was asked, stop and say so instead of quietly expanding it — given your own noted analysis-paralysis/scope-drift pattern, this is worth enforcing explicitly.
+### Additional rules
+- **No silent scope creep**: if a task looks bigger than what was asked, stop and say so instead of quietly expanding it.
 - **No hardcoded secrets/config**: API keys, DB URLs, credentials go through env vars / `.env`, never inline in code.
 - **Explain before destructive actions**: `git reset --hard`, force pushes, dropping DB tables, deleting files — state intent and get confirmation first.
 - **Commit per feature slice**: one logical commit (or small set) per completed, tested feature — not one giant commit at the end.

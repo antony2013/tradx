@@ -9,14 +9,15 @@ from deepagents.middleware.filesystem import FilesystemPermission
 
 from settings import load_settings
 
-from .prompt import SYSTEM_PROMPT
-from .subagents import (
-    expiry_fetcher_spec,
-    history_fetcher_spec,
-    instrument_finder_spec,
-    market_info_spec,
-    market_status_spec,
+from .expiry_tools import (
+    fetch_expired_future_contracts,
+    fetch_expired_option_contracts,
+    fetch_expiries,
 )
+from .history_tools import acquire_dataset
+from .prompt import SYSTEM_PROMPT
+from .search_tools import fetch_option_contracts, search_instruments
+from .subagents import market_info_spec, market_status_spec
 
 AGENT_NAME = "data_collection"
 
@@ -57,14 +58,20 @@ def build_data_collection_agent(model: Any | None = None):  # type: ignore[no-un
     """Build the agent. Model required only to invoke, not to build."""
     return create_deep_agent(
         model=resolve_model(model),
-        # No direct data tools: the main agent MUST delegate to subagents.
-        # Giving it tools invites direct-call retry loops instead of routing.
-        tools=[],
+        # Collection tools live on the main agent: one call per operation,
+        # no delegation round-trips. Error-as-result + hint in every tool
+        # is the retry-loop protection (see prompt: fix once, then report).
+        # Only snapshot context (OI/smartlists, status) stays delegated.
+        tools=[
+            search_instruments,
+            fetch_option_contracts,
+            fetch_expiries,
+            fetch_expired_option_contracts,
+            fetch_expired_future_contracts,
+            acquire_dataset,
+        ],
         system_prompt=SYSTEM_PROMPT,
         subagents=[
-            instrument_finder_spec(),
-            history_fetcher_spec(),
-            expiry_fetcher_spec(),
             market_info_spec(),
             market_status_spec(),
         ],

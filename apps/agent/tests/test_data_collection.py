@@ -44,7 +44,7 @@ def test_prompt_synced_with_tools() -> None:
     for name in (
         "search_instruments",
         "fetch_option_contracts",
-        "fetch_historical",
+        "acquire_dataset",
         "validate_dataset",
         "fetch_expiries",
         "fetch_expired_option_contracts",
@@ -58,16 +58,14 @@ def test_prompt_synced_with_tools() -> None:
         "get_exchange_status",
         "get_market_timings",
         "get_market_holidays",
-        "instrument_key_finder",
-        "history_data_fetcher",
-        "expiry_data_fetcher",
         "market_information",
         "market_status",
     ):
         assert name in lowered, name
     # Correct arg vocabulary.
     assert "from_date" in lowered and "to_date" in lowered
-    # Expired candles route through fetch_historical, not a separate tool.
+    # Expired candles route through acquire_dataset/fetch_historical,
+    # not a separate tool.
     assert "fetch_expired_candles" not in lowered
 
 
@@ -75,37 +73,9 @@ def test_all_subagents_assigned() -> None:
     import sys
 
     sys.path.insert(0, ".")
-    from data_collection.subagents import (
-        expiry_fetcher_spec,
-        history_fetcher_spec,
-        instrument_finder_spec,
-        market_info_spec,
-        market_status_spec,
-    )
+    from data_collection.subagents import market_info_spec, market_status_spec
 
-    finder = instrument_finder_spec()
-    history = history_fetcher_spec()
-    expiry = expiry_fetcher_spec()
     market = market_info_spec()
-    assert finder["name"] == "instrument_key_finder"
-    assert finder["mode"] == "isolated"
-    assert {t.name for t in finder["tools"]} == {
-        "search_instruments",
-        "fetch_option_contracts",
-    }
-    assert history["name"] == "history_data_fetcher"
-    assert {t.name for t in history["tools"]} == {
-        "fetch_historical",
-        "validate_dataset",
-    }
-    assert expiry["name"] == "expiry_data_fetcher"
-    assert {t.name for t in expiry["tools"]} == {
-        "fetch_expiries",
-        "fetch_expired_option_contracts",
-        "fetch_expired_future_contracts",
-        "fetch_historical",
-        "validate_dataset",
-    }
     assert market["name"] == "market_information"
     assert market["mode"] == "isolated"
     assert {t.name for t in market["tools"]} == {
@@ -353,6 +323,197 @@ def test_market_status_tools_forward(monkeypatch) -> None:  # type: ignore[no-un
     out = json.loads(get_market_holidays.invoke({}))
     assert seen["url"].endswith("/market/holidays")
 
+
+def test_acquire_dataset_merges_fetch_and_validation(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import sys
+
+    sys.path.insert(0, ".")
+    from data_collection.history_tools import acquire_dataset
+
+    seen: dict = {}
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        seen.setdefault("urls", []).append(request.full_url)
+        if request.full_url.endswith("/historical/datasets"):
+            return _fake_ok(
+                {
+                    "dataset_id": "abc",
+                    "status": "COMPLETE",
+                    "record_count": 375,
+                    "reused": False,
+                }
+            )(request)
+        return _fake_ok(
+            {
+                "verdict": "VALID",
+                "completeness": 1.0,
+                "gap_count": 0,
+                "gaps": [],
+                "notes": ["n1"],
+            }
+        )(request)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    out = json.loads(
+        acquire_dataset.invoke(
+            {
+                "instrumentKey": "NSE_INDEX|Nifty 50",
+                "from_date": "2026-09-28",
+                "to_date": "2026-09-28",
+                "interval": "1minute",
+            }
+        )
+    )
+    assert out["dataset_id"] == "abc"
+    assert out["status"] == "COMPLETE"
+    assert out["record_count"] == 375
+    assert out["verdict"] == "VALID"
+    assert out["completeness"] == 1.0
+    assert out["first_gaps"] == []
+    assert out["notes"] == ["n1"]
+    assert len(seen["urls"]) == 2
+    assert seen["urls"][1].endswith("/historical/datasets/abc/validation")
+
+
+def test_main_agent_collects_in_bounded_calls_without_fs_tools(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Recording fake model: NIFTY 1-minute candles for one month.
+
+    Asserts the whole job takes <= 4 LLM calls, uses direct collection
+    tools (no `task` delegation), and never touches a filesystem tool.
+    No network, no real model.
+    """
+    import asyncio
+    import sys
+
+    sys.path.insert(0, ".")
+    from langchain_core.language_models.fake_chat_models import (
+        GenericFakeChatModel,
+    )
+    from langchain_core.messages import AIMessage
+
+    from data_collection.agent import build_data_collection_agent
+
+    bound_names: list = []
+
+    class RecordingFakeModel(GenericFakeChatModel):
+        """Fake that tolerates bind_tools and records the bound schema."""
+
+        def bind_tools(self, tools, **kwargs):  # type: ignore[no-untyped-def]
+            bound_names.extend(
+                getattr(t, "name", None) or t.get("name") for t in tools
+            )
+            return self
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        url = request.full_url
+        if "/instruments/search" in url:
+            return _fake_ok(
+                {"data": [{"instrument_key": "NSE_INDEX|Nifty 50"}]}
+            )(request)
+        if url.endswith("/historical/datasets"):
+            return _fake_ok(
+                {
+                    "dataset_id": "abc",
+                    "status": "COMPLETE",
+                    "record_count": 8000,
+                    "reused": False,
+                }
+            )(request)
+        return _fake_ok(
+            {
+                "verdict": "VALID",
+                "completeness": 1.0,
+                "gap_count": 0,
+                "gaps": [],
+                "notes": [],
+            }
+        )(request)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    script = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "search_instruments",
+                    "args": {"query": "NIFTY"},
+                    "id": "call_1",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "acquire_dataset",
+                    "args": {
+                        "instrumentKey": "NSE_INDEX|Nifty 50",
+                        "from_date": "2026-09-01",
+                        "to_date": "2026-09-30",
+                        "interval": "1minute",
+                    },
+                    "id": "call_2",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        AIMessage(content="Done: dataset abc is VALID with 8000 candles."),
+    ]
+
+    calls = {"n": 0}
+
+    class CountingIterator:
+        def __init__(self, items):  # type: ignore[no-untyped-def]
+            self._it = iter(items)
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def __next__(self):  # type: ignore[no-untyped-def]
+            calls["n"] += 1
+            return next(self._it)
+
+    agent = build_data_collection_agent(
+        RecordingFakeModel(messages=CountingIterator(script))
+    )
+    result = asyncio.run(
+        agent.ainvoke(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "NIFTY 1-minute candles for September 2026.",
+                    }
+                ]
+            }
+        )
+    )
+    assert calls["n"] <= 4, f"took {calls['n']} LLM calls"
+
+    invoked: list = []
+    for msg in result.get("messages", []):
+        for call in getattr(msg, "tool_calls", []) or []:
+            invoked.append(call.get("name"))
+    assert "search_instruments" in invoked
+    assert "acquire_dataset" in invoked
+    assert "task" not in invoked
+    fs_tools = {
+        "ls",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "delete",
+        "glob",
+        "grep",
+    }
+    assert not (set(invoked) & fs_tools), invoked
+    last = result["messages"][-1]
+    assert "abc" in str(getattr(last, "content", ""))
+    # Bound schema still contains fs tools at call time (Slice 7 removes
+    # them from the schema); what matters here is none was CALLED.
+    assert "task" in set(bound_names)
 
 def test_tools_return_errors_not_raise(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     import sys

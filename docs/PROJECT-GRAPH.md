@@ -90,19 +90,23 @@ flowchart TB
 Capture never auto-starts: boot is always `STOPPED`; `POST /capture/start`
 connects (idempotent), `POST /capture/stop` flushes and disconnects.
 
-## 4. Agent (apps/agent — 16 tools, 5 subagents)
+## 4. Agent (apps/agent — 17 tools, 2 subagents)
+
+Main agent calls collection tools directly (one call per operation):
+`search_instruments`, `fetch_option_contracts`, `fetch_expiries`,
+`fetch_expired_option_contracts`, `fetch_expired_future_contracts`,
+`acquire_dataset` (fetch + validate merged), `fetch_historical`,
+`validate_dataset` (standalone).
 
 | Subagent | Tools |
 |---|---|
-| `instrument_key_finder` | `search_instruments`, `fetch_option_contracts` |
-| `history_data_fetcher` | `fetch_historical`, `validate_dataset` |
-| `expiry_data_fetcher` | `fetch_expiries`, `fetch_expired_option_contracts`, `fetch_expired_future_contracts`, `fetch_historical`, `validate_dataset` |
 | `market_information` | `get_options_smartlist`, `get_futures_smartlist`, `get_oi`, `get_change_oi`, `get_max_pain`, `get_pcr` |
 | `market_status` | `get_exchange_status`, `get_market_timings`, `get_market_holidays` |
 
-Main agent holds zero data tools and routes everything through delegation.
-Filesystem is hard-denied at build (`FILESYSTEM_DENY_ALL`, inherited by
-subagents). Non-secret config resolves through `settings.py`.
+Main agent holds the collection tools and routes only snapshot context
+through delegation. Filesystem is hard-denied at build
+(`FILESYSTEM_DENY_ALL`, inherited by subagents). Non-secret config
+resolves through `settings.py`.
 
 ## 5. Database tables (data/research.db + data/capture/)
 
@@ -113,7 +117,7 @@ subagents). Non-secret config resolves through `settings.py`.
 | `historical_datasets`, `historical_chunks`, `historical_raw_responses`, `historical_candles` | historical/service.ts |
 | `validation_reports` | historical/validation.ts |
 
-## 6. Tests — 117 API (bun + vitest, 19 files) + 16 agent (pytest)
+## 6. Tests — 133 API (bun + vitest, 20 files) + 18 agent (pytest)
 
 API: capture (protobuf incl. market-info map regression, batch, queue,
 store, service, subscriptions, manual start/stop lifecycle) · historical
@@ -121,7 +125,7 @@ store, service, subscriptions, manual start/stop lifecycle) · historical
 market (search/expiries/contracts/status/timings/holidays, token hygiene,
 auth mapping) · app/config (timeout precedence)/database. `tsc` clean.
 
-Agent: prompt sync/boundaries, subagent toolsets (5), tool URL-forwarding
+Agent: prompt sync/boundaries, subagent toolsets (2), tool URL-forwarding
 + error-as-result, caps, filesystem deny, settings defaults/override.
 `ruff` + `mypy` clean.
 

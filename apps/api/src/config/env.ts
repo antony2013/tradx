@@ -55,6 +55,10 @@ const envSchema = z.object({
   HISTORICAL_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
   HISTORICAL_INITIAL_RETRY_DELAY_MS: z.coerce.number().int().min(1).default(500),
   HISTORICAL_MAX_RETRY_DELAY_MS: z.coerce.number().int().min(1).default(8000),
+  // Stale-run lease: a RUNNING/PENDING dataset with no progress (no fresh
+  // RUNNING chunk, no recent dataset heartbeat) older than this is treated
+  // as crashed and becomes resumable instead of reused forever.
+  HISTORICAL_STALE_AFTER_MS: z.coerce.number().int().min(1000).default(900000),
   // Shared Upstox HTTP timeout (historical, search, expiries, market).
   // HISTORICAL_REQUEST_TIMEOUT_MS is a deprecated alias: honored when the
   // new name is unset so existing deployments keep their tuned value.

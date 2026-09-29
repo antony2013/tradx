@@ -392,8 +392,7 @@ describe('historical acquisition service', () => {
     expect(stored).toHaveLength(8200);
   });
 
-  it('rolls back the whole chunk when a late batch fails', async () => {
-    createFixture();
+  it('rolls back the whole chunk when a late batch fails', async () => {    createFixture();
     const base = Date.parse('2026-09-01T00:00:00Z');
     const candles = Array.from({ length: 8000 }, (_, i) => ({
       timestamp: base + i * 60000,
@@ -445,5 +444,103 @@ describe('historical acquisition service', () => {
       .from(historicalRawResponses)
       .where(eq(historicalRawResponses.datasetId, result.dataset_id));
     expect(raws).toHaveLength(0);
+  });
+
+  it('takes over a stale RUNNING dataset past the lease', async () => {
+    createFixture();
+    const { database } = fixture as Fixture;
+    const staleInput = {
+      ...baseRequest,
+      from: '2026-09-14',
+      to: '2026-09-18',
+      interval: '1day',
+    };
+    const staleId = computeDatasetId(validateHistoricalRequest(staleInput));
+    const hourAgo = Date.now() - 3600000;
+    await database.db.insert(historicalDatasets).values({
+      datasetId: staleId,
+      instrumentKey: 'NSE_INDEX|Nifty 50',
+      requestedFrom: '2026-09-14',
+      requestedTo: '2026-09-18',
+      unit: 'days',
+      interval: 1,
+      source: 'upstox',
+      status: 'RUNNING',
+      chunksTotal: 1,
+      chunksCompleted: 0,
+      chunksFailed: 0,
+      recordCount: 0,
+      schemaVersion: 'test-1',
+      createdAt: hourAgo,
+      updatedAt: hourAgo,
+    });
+    await database.db.insert(historicalChunks).values({
+      datasetId: staleId,
+      chunkIndex: 0,
+      chunkFrom: '2026-09-14',
+      chunkTo: '2026-09-18',
+      status: 'PENDING',
+      attempts: 0,
+      recordCount: 0,
+    });
+
+    const client = new FakeHistoricalClient(
+      new Map([[0, [{ kind: 'data', candles: [candle('2026-09-15', 100)] }]]]),
+    );
+    const result = await prepareHistoricalDataset(deps(client), staleInput);
+    expect(result.dataset_id).toBe(staleId);
+    expect(result.status).toBe('COMPLETE');
+    expect(result.record_count).toBe(1);
+    // Takeover proof: a pure reuse would make zero upstream calls.
+    expect(client.calls).toHaveLength(1);
+  });
+
+  it('does not compete with a live RUNNING chunk', async () => {
+    createFixture();
+    const { database } = fixture as Fixture;
+    const liveInput = {
+      ...baseRequest,
+      from: '2026-09-14',
+      to: '2026-09-18',
+      interval: '1day',
+    };
+    const liveId = computeDatasetId(validateHistoricalRequest(liveInput));
+    const hourAgo = Date.now() - 3600000;
+    await database.db.insert(historicalDatasets).values({
+      datasetId: liveId,
+      instrumentKey: 'NSE_INDEX|Nifty 50',
+      requestedFrom: '2026-09-14',
+      requestedTo: '2026-09-18',
+      unit: 'days',
+      interval: 1,
+      source: 'upstox',
+      status: 'RUNNING',
+      chunksTotal: 1,
+      chunksCompleted: 0,
+      chunksFailed: 0,
+      recordCount: 0,
+      schemaVersion: 'test-1',
+      createdAt: hourAgo,
+      updatedAt: hourAgo,
+    });
+    // Owner is mid-fetch right now: chunk RUNNING with a fresh start stamp,
+    // even though the dataset heartbeat is old.
+    await database.db.insert(historicalChunks).values({
+      datasetId: liveId,
+      chunkIndex: 0,
+      chunkFrom: '2026-09-14',
+      chunkTo: '2026-09-18',
+      status: 'RUNNING',
+      attempts: 1,
+      requestedAt: Date.now(),
+      recordCount: 0,
+    });
+
+    const client = new FakeHistoricalClient(new Map());
+    const result = await prepareHistoricalDataset(deps(client), liveInput);
+    expect(result.dataset_id).toBe(liveId);
+    expect(result.status).toBe('RUNNING');
+    expect(result.reused).toBe(true);
+    expect(client.calls).toHaveLength(0);
   });
 });

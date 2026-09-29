@@ -22,7 +22,15 @@ import { validateHistoricalRequest } from './validate';
 
 export type HistoricalServiceConfig = {
   schemaVersion: string;
+  /**
+   * Stale-run lease (ms). Optional in code, required via env at the route
+   * layer; defaults to DEFAULT_STALE_AFTER_MS so unit fixtures stay small.
+   */
+  staleAfterMs?: number;
 };
+
+/** Default stale-run lease: 15 minutes without progress. */
+export const DEFAULT_STALE_AFTER_MS = 900000;
 
 // Rows per candle INSERT inside a chunk transaction: 500 rows x 11 columns
 // stays far below SQLite's bound-parameter ceiling.
@@ -47,6 +55,40 @@ function errorCode(error: unknown): string {
 }
 
 /**
+ * Lease check for a non-owned RUNNING/PENDING dataset.
+ *
+ * Live = a RUNNING chunk with a fresh start stamp, or a recently stamped
+ * dataset row (claim/resume/chunk-outcome heartbeat). Anything else older
+ * than the lease is a crashed run and becomes resumable.
+ *
+ * Residual risk (documented, benign): a live fetch slower than the lease
+ * looks dead and gets a redundant twin. Twin writes are idempotent
+ * (UNIQUE + onConflictDoNothing), so the only cost is duplicate upstream
+ * calls — never corrupt data, never a third competitor (the twin stamps
+ * fresh heartbeats, so further arrivals see a live run).
+ */
+async function hasLiveProgress(
+  db: DatabaseContainer['db'],
+  dataset: DatasetRow,
+  staleAfterMs: number,
+): Promise<boolean> {
+  const now = Date.now();
+  if (now - dataset.updatedAt < staleAfterMs) {
+    return true;
+  }
+  const chunks = await db
+    .select({ status: historicalChunks.status, requestedAt: historicalChunks.requestedAt })
+    .from(historicalChunks)
+    .where(eq(historicalChunks.datasetId, dataset.datasetId));
+  return chunks.some(
+    (chunk) =>
+      chunk.status === 'RUNNING' &&
+      chunk.requestedAt !== null &&
+      now - chunk.requestedAt < staleAfterMs,
+  );
+}
+
+/**
  * Stage 1 acquisition: validate -> deterministic id -> claim-or-reconcile
  * via the UNIQUE(dataset_id) row -> sequential chunk acquisition ->
  * raw + normalized persistence -> metadata.
@@ -55,9 +97,9 @@ function errorCode(error: unknown): string {
  * check-then-insert alone. The loser of a claim race re-reads the winner's
  * row and returns/reuses/resumes it without starting a second acquisition.
  *
- * TODO(lease): stale RUNNING/PENDING rows after a crash need
- * heartbeat/lease recovery; for now they are returned as-is and require
- * the documented manual recovery (see README).
+ * Stale RUNNING/PENDING rows (crashed runs past the lease) are taken over
+ * via the same resume path; see hasLiveProgress. Manual recovery docs in
+ * README remain valid for operator-driven repair.
  */
 export async function prepareHistoricalDataset(
   deps: HistoricalServiceDeps,
@@ -88,18 +130,27 @@ export async function prepareHistoricalDataset(
       return toResult(dataset, true);
     }
     if (dataset.status === 'RUNNING' || dataset.status === 'PENDING') {
-      // Possible stale row after a crash (see README recovery path).
-      // Never start a competing acquisition.
-      logger.info('dataset_reused', 'Existing acquisition in progress', {
+      const staleAfterMs = config.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
+      if (await hasLiveProgress(db, dataset, staleAfterMs)) {
+        // A live acquisition owns this dataset. Never compete with it.
+        logger.info('dataset_reused', 'Existing acquisition in progress', {
+          datasetId,
+          status: dataset.status,
+        });
+        return toResult(dataset, true);
+      }
+      logger.info('dataset_stale_takeover', 'Stale run past the lease; taking over', {
         datasetId,
         status: dataset.status,
       });
-      return toResult(dataset, true);
+      // Fall through to the resume path below: non-COMPLETE chunks reset
+      // to PENDING, counters recount from COMPLETE rows.
+    } else {
+      logger.info('dataset_resume_started', 'Resuming dataset', {
+        datasetId,
+        status: dataset.status,
+      });
     }
-    logger.info('dataset_resume_started', 'Resuming dataset', {
-      datasetId,
-      status: dataset.status,
-    });
     // Reset every non-complete chunk (a crash may leave RUNNING rows).
     // COMPLETE chunks are never touched: their data is reused as-is.
     // Counters restart from the reused COMPLETE rows so the resumed run

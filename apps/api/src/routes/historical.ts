@@ -127,7 +127,10 @@ export function registerHistoricalRoutes(
         db: deps.database.db,
         client: deps.client,
         logger: deps.logger,
-        config: { schemaVersion: deps.config.HISTORICAL_SCHEMA_VERSION },
+        config: {
+          schemaVersion: deps.config.HISTORICAL_SCHEMA_VERSION,
+          staleAfterMs: deps.config.HISTORICAL_STALE_AFTER_MS,
+        },
       },
       {
         instrumentKey: body.instrumentKey,

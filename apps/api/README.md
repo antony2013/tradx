@@ -97,10 +97,14 @@ only, no hours) and persist into the same tables with full lineage.
 Tables: `historical_datasets` (UNIQUE `dataset_id` = idempotency guard),
 `historical_chunks`, `historical_raw_responses`, `historical_candles`.
 
-### Stale RUNNING recovery (known Stage 1 limitation)
+### Stale RUNNING recovery (lease-based takeover)
 
-No heartbeat/lease recovery exists yet. If the process crashes mid-run, a
-dataset can stay `RUNNING` forever. Inspect and recover manually:
+A `RUNNING`/`PENDING` dataset with no progress older than
+`HISTORICAL_STALE_AFTER_MS` (default 15 min) is treated as a crashed run:
+the next request takes it over via the normal resume path (non-`COMPLETE`
+chunks reset, counters recount, idempotent writes). A live run — fresh
+dataset heartbeat or a freshly started `RUNNING` chunk — is never competed
+with. Manual recovery below remains valid for operator-driven repair:
 
 ```sql
 SELECT dataset_id, status, chunks_total, chunks_completed, chunks_failed
@@ -115,8 +119,8 @@ WHERE dataset_id = '<id>';
 The next `POST /historical/datasets` for the same request will then retry
 the missing chunks under the same `dataset_id`.
 
-TODO: heartbeat/lease-based stale-run recovery; dataset revisioning for
-upstream restatements (Stage 1 treats datasets as immutable).
+TODO: dataset revisioning for upstream restatements (Stage 1 treats datasets
+as immutable).
 
 ## Historical validation (Stage 2)
 

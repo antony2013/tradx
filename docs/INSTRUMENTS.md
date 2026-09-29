@@ -39,10 +39,15 @@ Discovery only — nothing is stored.
 `expiry` accepts a date or keyword; `date` is `YYYY-MM-DD`; `interval` is
 days, `bucket_interval` minutes. Discovery only — nothing is stored.
 
-> Expiry keywords are unreliable on `/instruments/search`: `current_week`
-> returned zero rows live on expiry day 2026-09-29 while the same query
-> with `expiry=2026-09-29` returned 10 rows (`next_month` worked).
-> Prefer an explicit `YYYY-MM-DD` date for search.
+> Expiry keywords are unreliable on `/instruments/search` (proven upstream
+> with direct Upstox calls, our code bypassed — 2026-09-29):
+> `current_week` → 0 rows for NIFTY, BANKNIFTY and RELIANCE alike, while
+> `next_week` → 10, `current_month` → 10, and explicit dates work
+> (`2026-09-29` → 10, `2026-10-06` → 10). An explicit non-expiry date
+> (`2026-10-01`, Thursday) also returns 0, so `current_week` behaves
+> exactly like a date with no listed expiry — likely stale week logic
+> upstream after NSE's move to Tuesday expiries. Prefer an explicit
+> `YYYY-MM-DD` date for search.
 
 Typical F&O history chain (ref §9.2): underlying search → expiries →
 expired contracts → expired candles (`POST /historical/datasets` does not

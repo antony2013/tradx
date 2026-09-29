@@ -102,6 +102,20 @@ describe('expected sessions', () => {
     expect(slots[6]).toBe(Date.parse('2026-09-14T15:15:00+05:30'));
   });
 
+  it('ends the 1-minute grid at 15:29 IST (live-verified, not 15:30)', () => {
+    // Live 2026-09-29: a full Nifty 1-minute day is 09:15 → 15:29
+    // (375 candles, active and expired keys). A 15:30 close would add
+    // one phantom slot — one false gap per complete day.
+    const one = expectedIntradaySlots('2026-09-28', '2026-09-28', 'minutes', 1);
+    expect(one).toHaveLength(375);
+    expect(one[0]).toBe(Date.parse('2026-09-28T09:15:00+05:30'));
+    expect(one[374]).toBe(Date.parse('2026-09-28T15:29:00+05:30'));
+
+    const five = expectedIntradaySlots('2026-09-28', '2026-09-28', 'minutes', 5);
+    expect(five).toHaveLength(75);
+    expect(five[74]).toBe(Date.parse('2026-09-28T15:25:00+05:30'));
+  });
+
   it('selects buckets for weeks and months', () => {
     const weeks = expectedSessions('2026-09-01', '2026-09-23', 'weeks', 1);
     expect(weeks.values).toHaveLength(4);

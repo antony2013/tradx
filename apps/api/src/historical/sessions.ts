@@ -10,10 +10,16 @@ export type SessionTemplate = {
 /**
  * Default NSE cash session. Assumption documented in the report.
  * TODO: per-exchange / per-instrument session templates.
+ *
+ * Verified live 2026-09-29 (NSE Nifty 50, full trading day 2026-09-28):
+ * 1-minute candles run 09:15 → 15:29 IST (375 rows, active AND expired
+ * keys), NOT 15:30. Coarser steps floor from 09:15 within the same bound
+ * (5-min → 15:25, 15-min/1-hour → 15:15 — all observed). A 15:30 close
+ * would manufacture one false gap per complete intraday day.
  */
 export const DEFAULT_SESSION: SessionTemplate = {
   openMin: 9 * 60 + 15,
-  closeMin: 15 * 60 + 30,
+  closeMin: 15 * 60 + 29,
 };
 
 const dayFormatter = new Intl.DateTimeFormat('en-CA', {

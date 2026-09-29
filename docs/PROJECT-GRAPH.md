@@ -90,7 +90,7 @@ flowchart TB
 Capture never auto-starts: boot is always `STOPPED`; `POST /capture/start`
 connects (idempotent), `POST /capture/stop` flushes and disconnects.
 
-## 4. Agent (apps/agent — 17 tools, 2 subagents)
+## 4. Agent (apps/agent — 23 tools, 3 subagents)
 
 Main agent calls collection tools directly (one call per operation):
 `search_instruments`, `fetch_option_contracts`, `fetch_expiries`,
@@ -102,6 +102,7 @@ Main agent calls collection tools directly (one call per operation):
 |---|---|
 | `market_information` | `get_options_smartlist`, `get_futures_smartlist`, `get_oi`, `get_change_oi`, `get_max_pain`, `get_pcr` |
 | `market_status` | `get_exchange_status`, `get_market_timings`, `get_market_holidays` |
+| `capture_controller` | `get_capture_status`, `get_capture_stats`, `get_subscriptions`, `update_subscriptions`, `start_capture`, `stop_capture` |
 
 Main agent holds the collection tools and routes only snapshot context
 through delegation. Filesystem is hard-denied at build
@@ -117,7 +118,7 @@ resolves through `settings.py`.
 | `historical_datasets`, `historical_chunks`, `historical_raw_responses`, `historical_candles` | historical/service.ts |
 | `validation_reports` | historical/validation.ts |
 
-## 6. Tests — 133 API (bun + vitest, 20 files) + 21 agent (pytest)
+## 6. Tests — 133 API (bun + vitest, 20 files) + 22 agent (pytest)
 
 API: capture (protobuf incl. market-info map regression, batch, queue,
 store, service, subscriptions, manual start/stop lifecycle) · historical
@@ -127,7 +128,7 @@ auth mapping) · app/config (timeout precedence)/database. `tsc` clean.
 
 Agent: prompt contracts (scope refusal, tool-existence, arg vocab),
 recording-model run (≤4 LLM calls, no fs/task calls), subagent toolsets +
-fs-hiding (2), tool URL-forwarding + error-as-result, caps, filesystem
+fs-hiding (3), tool URL-forwarding + error-as-result, caps, filesystem
 deny, explicit-model + subagent-model override, settings
 defaults/override. `ruff` + `mypy` clean.
 

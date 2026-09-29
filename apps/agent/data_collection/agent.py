@@ -18,6 +18,7 @@ from .prompt import SYSTEM_PROMPT
 from .search_tools import fetch_option_contracts, search_instruments
 from .subagents import (
     FILESYSTEM_DENY_ALL,
+    capture_controller_spec,
     filesystem_locked_middleware,
     market_info_spec,
     market_status_spec,
@@ -89,6 +90,7 @@ def build_data_collection_agent(model: Any):  # type: ignore[no-untyped-def]
         subagents=[
             market_info_spec(subagent_model),
             market_status_spec(subagent_model),
+            capture_controller_spec(subagent_model),
         ],
         name=AGENT_NAME,
         permissions=[FILESYSTEM_DENY_ALL],

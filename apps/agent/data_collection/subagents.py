@@ -10,6 +10,14 @@ from deepagents.middleware.filesystem import (
 )
 from deepagents.middleware.subagents import SubAgent
 
+from .capture_tools import (
+    get_capture_stats,
+    get_capture_status,
+    get_subscriptions,
+    start_capture,
+    stop_capture,
+    update_subscriptions,
+)
 from .market_tools import (
     get_change_oi,
     get_exchange_status,
@@ -24,6 +32,7 @@ from .market_tools import (
 
 MARKET_INFO_NAME = "market_information"
 MARKET_STATUS_NAME = "market_status"
+CAPTURE_CONTROLLER_NAME = "capture_controller"
 
 # Core rules every isolated subagent carries (they cannot see the parent
 # prompt, so the essentials are duplicated here in compact form).
@@ -123,6 +132,43 @@ Rules:
             get_exchange_status,
             get_market_timings,
             get_market_holidays,
+        ],
+    }
+    if model is not None:
+        spec["model"] = model
+    return cast(SubAgent, spec)
+
+
+def capture_controller_spec(model: Any = None) -> SubAgent:
+    # cast: installed stubs lag the runtime TypedDict (which has "mode").
+    spec: dict = {
+        "name": CAPTURE_CONTROLLER_NAME,
+        "description": (
+            "Operates the live capture feed: state/stats inspection, "
+            "runtime subscription changes, and manual start/stop. "
+            "Delegate whenever live-feed state or control is needed."
+        ),
+        "system_prompt": """\
+You operate the live capture feed through the capture tools.
+Rules:
+1. The server never auto-starts: start_capture ONLY on an explicit user
+   request to go live. Never start speculatively.
+2. Report capture_state verbatim (STOPPED/CONNECTING/CONNECTED/...).
+3. update_subscriptions needs action ("sub"|"unsub") + canonical
+   "SEGMENT|id" keys; report added/removed/missing/invalid honestly.
+4. stop_capture flushes first and is safe when already stopped.
+5. Snapshots only, never persisted. Never present feed state as trade
+   recommendations.
+""" + CORE_RULES,
+        "mode": "isolated",
+        "middleware": [filesystem_locked_middleware()],
+        "tools": [
+            get_capture_status,
+            get_capture_stats,
+            get_subscriptions,
+            update_subscriptions,
+            start_capture,
+            stop_capture,
         ],
     }
     if model is not None:

@@ -79,6 +79,8 @@ def test_prompt_synced_with_tools() -> None:
         fetch_expiries,
         fetch_historical,
         fetch_option_contracts,
+        get_capture_stats,
+        get_capture_status,
         get_change_oi,
         get_exchange_status,
         get_futures_smartlist,
@@ -88,7 +90,11 @@ def test_prompt_synced_with_tools() -> None:
         get_oi,
         get_options_smartlist,
         get_pcr,
+        get_subscriptions,
         search_instruments,
+        start_capture,
+        stop_capture,
+        update_subscriptions,
         validate_dataset,
     )
     from data_collection import prompt as prompt_module
@@ -105,6 +111,8 @@ def test_prompt_synced_with_tools() -> None:
             fetch_expiries,
             fetch_historical,
             fetch_option_contracts,
+            get_capture_stats,
+            get_capture_status,
             get_change_oi,
             get_exchange_status,
             get_futures_smartlist,
@@ -114,7 +122,11 @@ def test_prompt_synced_with_tools() -> None:
             get_oi,
             get_options_smartlist,
             get_pcr,
+            get_subscriptions,
             search_instruments,
+            start_capture,
+            stop_capture,
+            update_subscriptions,
             validate_dataset,
         )
     }
@@ -129,6 +141,7 @@ def test_prompt_synced_with_tools() -> None:
     spec_names = {
         subagents_module.MARKET_INFO_NAME,
         subagents_module.MARKET_STATUS_NAME,
+        subagents_module.CAPTURE_CONTROLLER_NAME,
     }
     for name in spec_names:
         assert name in lowered, name
@@ -146,7 +159,11 @@ def test_all_subagents_assigned() -> None:
     import sys
 
     sys.path.insert(0, ".")
-    from data_collection.subagents import market_info_spec, market_status_spec
+    from data_collection.subagents import (
+        capture_controller_spec,
+        market_info_spec,
+        market_status_spec,
+    )
 
     market = market_info_spec()
     assert market["name"] == "market_information"
@@ -167,15 +184,34 @@ def test_all_subagents_assigned() -> None:
         "get_market_timings",
         "get_market_holidays",
     }
+    capture = capture_controller_spec()
+    assert capture["name"] == "capture_controller"
+    assert capture["mode"] == "isolated"
+    assert {t.name for t in capture["tools"]} == {
+        "get_capture_status",
+        "get_capture_stats",
+        "get_subscriptions",
+        "update_subscriptions",
+        "start_capture",
+        "stop_capture",
+    }
 
 
 def test_subagents_hide_filesystem_tools() -> None:
     import sys
 
     sys.path.insert(0, ".")
-    from data_collection.subagents import market_info_spec, market_status_spec
+    from data_collection.subagents import (
+        capture_controller_spec,
+        market_info_spec,
+        market_status_spec,
+    )
 
-    for spec in (market_info_spec(), market_status_spec()):
+    for spec in (
+        market_info_spec(),
+        market_status_spec(),
+        capture_controller_spec(),
+    ):
         middlewares = spec.get("middleware", [])
         assert len(middlewares) == 1
         fs = middlewares[0]
@@ -611,6 +647,52 @@ def test_main_agent_collects_in_bounded_calls_without_fs_tools(monkeypatch) -> N
         "read_file",
         "task",
     }, bound_names
+
+def test_capture_tools_forward(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import sys
+
+    sys.path.insert(0, ".")
+    from data_collection.capture_tools import (
+        get_capture_status,
+        start_capture,
+        stop_capture,
+        update_subscriptions,
+    )
+
+    seen: dict = {}
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        seen.setdefault("urls", []).append(request.full_url)
+        seen["method"] = request.get_method()
+        if request.full_url.endswith("/capture/start"):
+            return _fake_ok({"capture_state": "CONNECTING"})(request)
+        if request.full_url.endswith("/capture/stop"):
+            return _fake_ok({"capture_state": "STOPPED"})(request)
+        if request.full_url.endswith("/capture/subscriptions"):
+            return _fake_ok({"action": "sub", "instrument_keys": ["NSE_FO|1"]})(
+                request
+            )
+        return _fake_ok({"capture_state": "STOPPED"})(request)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    out = json.loads(get_capture_status.invoke({}))
+    assert seen["urls"][0].endswith("/capture/status")
+    assert out == {"capture_state": "STOPPED"}
+
+    out = json.loads(start_capture.invoke({}))
+    assert seen["method"] == "POST"
+    assert out == {"capture_state": "CONNECTING"}
+
+    out = json.loads(stop_capture.invoke({}))
+    assert out == {"capture_state": "STOPPED"}
+
+    out = json.loads(
+        update_subscriptions.invoke(
+            {"action": "sub", "instrument_keys": ["NSE_FO|1"]}
+        )
+    )
+    assert out["instrument_keys"] == ["NSE_FO|1"]
+
 
 def test_tools_return_errors_not_raise(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     import sys

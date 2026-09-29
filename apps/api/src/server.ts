@@ -139,13 +139,8 @@ export const app = createApp({
   ),
 });
 
-if (capture && captureSource) {
-  capture.start().catch((error: unknown) => {
-    logger.error('capture_not_started', 'Capture service failed to start', {
-      detail: error instanceof Error ? error.message : 'Unknown error',
-    });
-  });
-}
+// Capture never auto-starts: it stays STOPPED until POST /capture/start.
+// Manual start/stop only (subscriptions remain mutable at runtime).
 
 const server = Bun.serve({
   port: config.PORT,

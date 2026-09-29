@@ -34,6 +34,10 @@ class FakeSubscribableSource implements SubscribableSource {
     }
   }
 
+  async start(): Promise<void> {}
+
+  async stop(): Promise<void> {}
+
   getSubscribedKeys(): string[] {
     return [...this.keys].sort();
   }
@@ -242,6 +246,8 @@ describe('health endpoint contracts', () => {
       [
         '/capture/stats',
         '/capture/status',
+        '/capture/start',
+        '/capture/stop',
         '/capture/subscriptions',
         '/health',
         '/historical/datasets',
@@ -324,5 +330,44 @@ describe('health endpoint contracts', () => {
       body: JSON.stringify({ action: 'sub', instrumentKeys: ['NSE_FO|1'] }),
     });
     expect(post.status).toBe(503);
+  });
+
+  it('starts and stops capture manually without auto-start', async () => {
+    const { app } = createFixture(true);
+
+    const initial = (await (
+      await app.request('/capture/status')
+    ).json()) as { capture_state: string };
+    expect(initial.capture_state).toBe('STOPPED');
+
+    const start = await app.request('/capture/start', { method: 'POST' });
+    expect(start.status).toBe(200);
+    const started = (await start.json()) as { capture_state: string };
+    // Fixture service has no live source, so it settles at CONNECTED.
+    expect(started.capture_state).toBe('CONNECTED');
+
+    const restart = await app.request('/capture/start', { method: 'POST' });
+    expect(restart.status).toBe(200);
+
+    const stop = await app.request('/capture/stop', { method: 'POST' });
+    expect(stop.status).toBe(200);
+    const stopped = (await stop.json()) as { capture_state: string };
+    expect(stopped.capture_state).toBe('STOPPED');
+
+    const status = (await (
+      await app.request('/capture/status')
+    ).json()) as { capture_state: string };
+    expect(status.capture_state).toBe('STOPPED');
+  });
+
+  it('returns 503 for start/stop when capture is not configured', async () => {
+    const { app } = createFixture(false);
+
+    expect((await app.request('/capture/start', { method: 'POST' })).status).toBe(
+      503,
+    );
+    expect((await app.request('/capture/stop', { method: 'POST' })).status).toBe(
+      503,
+    );
   });
 });

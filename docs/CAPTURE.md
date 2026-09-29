@@ -19,7 +19,7 @@ documentation (see `docs/ref-web/upstox-ref.md` §10.1); nothing is guessed.
 
 | Var | Meaning |
 |---|---|
-| `CAPTURE_ENABLED` | `true` starts capture at boot |
+| `CAPTURE_ENABLED` | `true` builds the capture service + source (stays `STOPPED` until manual start) |
 | `UPSTOX_ACCESS_TOKEN` | header-only, never logged |
 | `UPSTOX_INSTRUMENT_KEYS` | comma-separated initial keys (single or many) |
 | `UPSTOX_FEED_MODE` | one of the four modes above |
@@ -34,6 +34,8 @@ documentation (see `docs/ref-web/upstox-ref.md` §10.1); nothing is guessed.
 | `GET /capture/stats` | batches/rows received+persisted, overflows, errors, latencies |
 | `GET /capture/subscriptions` | current `feed_mode` + `instrument_keys` |
 | `POST /capture/subscriptions` | `{action: "sub"\|"unsub", instrumentKeys: [...]}` — single key or many; invalid keys reported, never stored |
+| `POST /capture/start` | manually start the feed (**no auto-start on boot**); idempotent — a second call reports state instead of double-connecting |
+| `POST /capture/stop` | manually stop the feed; flushes pending batches first |
 
 Subscription changes apply to the live socket immediately (`sub`/`unsub`
 frames) and are replayed in full on every reconnect. Each reconnect mints

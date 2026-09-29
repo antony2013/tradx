@@ -90,6 +90,35 @@ function disabled(message: string) {
   return { error: { code: 'CAPTURE_DISABLED', message } };
 }
 
+function lifecycleResponses(description: string) {
+  return {
+    200: {
+      content: { 'application/json': { schema: CaptureStatusSchema } },
+      description,
+    },
+    503: {
+      content: { 'application/json': { schema: ErrorSchema } },
+      description: 'Capture service or source is not configured',
+    },
+  } as const;
+}
+
+const startRoute = createRoute({
+  method: 'post',
+  path: '/capture/start',
+  tags: ['capture'],
+  summary: 'Manually start the live capture feed (no auto-start on boot)',
+  responses: lifecycleResponses('Capture state after start'),
+});
+
+const stopRoute = createRoute({
+  method: 'post',
+  path: '/capture/stop',
+  tags: ['capture'],
+  summary: 'Manually stop the live capture feed (flushes pending batches)',
+  responses: lifecycleResponses('Capture state after stop'),
+});
+
 export function registerCaptureRoutes(
   app: OpenAPIHono,
   getService: () => CaptureService | null,
@@ -133,5 +162,29 @@ export function registerCaptureRoutes(
       { action: body.action, ...change, instrument_keys: source.getSubscribedKeys() },
       200,
     );
+  });
+
+  app.openapi(startRoute, async (c) => {
+    const service = getService();
+    const source = getSource();
+    if (!service || !source) {
+      return c.json(
+        disabled('Capture service or source is not configured'),
+        503,
+      );
+    }
+    // Service and source start() are idempotent: a second POST is a no-op
+    // that reports the current state instead of double-connecting.
+    await service.start();
+    return c.json(service.getStatus(), 200);
+  });
+
+  app.openapi(stopRoute, async (c) => {
+    const service = getService();
+    if (!service) {
+      return c.json(disabled('Capture service is not configured'), 503);
+    }
+    await service.stop();
+    return c.json(service.getStatus(), 200);
   });
 }

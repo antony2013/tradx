@@ -135,10 +135,11 @@ export type SubscriptionChange = {
 };
 
 /**
- * A source whose instrument subscriptions can change at runtime
+ * A live source whose instrument subscriptions can change at runtime
  * (single key or many). Implemented by the Upstox feed source.
+ * Manual start/stop ride on the base CaptureSource lifecycle.
  */
-export type SubscribableSource = {
+export type SubscribableSource = CaptureSource & {
   getSubscribedKeys(): string[];
   getFeedMode(): string;
   subscribe(keys: string[]): SubscriptionChange;

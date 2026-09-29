@@ -24,6 +24,10 @@ export type HistoricalServiceConfig = {
   schemaVersion: string;
 };
 
+// Rows per candle INSERT inside a chunk transaction: 500 rows x 11 columns
+// stays far below SQLite's bound-parameter ceiling.
+export const CANDLE_INSERT_BATCH_SIZE = 500;
+
 export type HistoricalServiceDeps = {
   db: DatabaseContainer['db'];
   client: HistoricalClient;
@@ -270,8 +274,7 @@ async function acquireChunk(
   datasetId: string,
   request: ValidatedHistoricalRequest,
   chunk: ChunkRow,
-): Promise<'COMPLETE' | 'FAILED' | 'AUTH_HALT'> {
-  const { db, client, logger } = deps;
+): Promise<'COMPLETE' | 'FAILED' | 'AUTH_HALT'> {  const { db, client, logger } = deps;
   const chunkRef = `chunk ${chunk.chunkIndex} [${chunk.chunkFrom}..${chunk.chunkTo}]`;
 
   await db
@@ -310,47 +313,62 @@ async function acquireChunk(
           chunkIndex: chunk.chunkIndex,
         });
 
-    await db
-      .insert(historicalRawResponses)
-      .values({
-        datasetId,
-        chunkIndex: chunk.chunkIndex,
-        rawPayload: fetched.rawText,
-        responseHash: fetched.responseHash,
-        acquiredAt: Date.now(),
-      })
-      .onConflictDoNothing();
-
-    if (fetched.candles.length > 0) {
-      await db
-        .insert(historicalCandles)
-        .values(
-          fetched.candles.map((candle) => ({
-            datasetId,
-            instrumentKey: request.instrumentKey,
-            timestamp: candle.timestamp,
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close,
-            volume: candle.volume,
-            openInterest: candle.openInterest,
-            unit: request.unit,
-            interval: request.interval,
-          })),
-        )
-        .onConflictDoNothing();
-    }
-
-    await db
-      .update(historicalChunks)
-      .set({
-        status: 'COMPLETE',
-        recordCount: fetched.candles.length,
-        responseHash: fetched.responseHash,
-        respondedAt: fetched.respondedAt,
-      })
-      .where(eq(historicalChunks.id, chunk.id));
+    // One transaction per chunk: raw response + ALL candle batches + the
+    // COMPLETE stamp commit atomically. Candle inserts are batched because
+    // a single .values() call with full-chunk rows exceeds SQLite's bound
+    // parameter limit (a 1-minute month is ~8,000 rows x 11 columns).
+    // NOTE: the callback MUST stay synchronous with .run() — bun:sqlite
+    // native transactions cannot span awaits (statements after the first
+    // await run in autocommit). Any throw rolls everything back: zero
+    // partial candles, chunk stays non-COMPLETE so resume/retry re-fetches
+    // it cleanly.
+    const candleRows = fetched.candles.map((candle) => ({
+      datasetId,
+      instrumentKey: request.instrumentKey,
+      timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: candle.volume,
+      openInterest: candle.openInterest,
+      unit: request.unit,
+      interval: request.interval,
+    }));
+    // Awaited (not merely called): the vitest better-sqlite3 shim wraps
+    // transactions in an async function, so only await propagates a
+    // mid-chunk throw back into the catch below on both runners.
+    await db.transaction((tx) => {
+      tx.insert(historicalRawResponses)
+        .values({
+          datasetId,
+          chunkIndex: chunk.chunkIndex,
+          rawPayload: fetched.rawText,
+          responseHash: fetched.responseHash,
+          acquiredAt: Date.now(),
+        })
+        .onConflictDoNothing()
+        .run();
+      for (
+        let offset = 0;
+        offset < candleRows.length;
+        offset += CANDLE_INSERT_BATCH_SIZE
+      ) {
+        tx.insert(historicalCandles)
+          .values(candleRows.slice(offset, offset + CANDLE_INSERT_BATCH_SIZE))
+          .onConflictDoNothing()
+          .run();
+      }
+      tx.update(historicalChunks)
+        .set({
+          status: 'COMPLETE',
+          recordCount: fetched.candles.length,
+          responseHash: fetched.responseHash,
+          respondedAt: fetched.respondedAt,
+        })
+        .where(eq(historicalChunks.id, chunk.id))
+        .run();
+    });
     logger.info('chunk_completed', `Chunk completed ${chunkRef}`, {
       datasetId,
       chunkIndex: chunk.chunkIndex,

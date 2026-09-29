@@ -356,4 +356,94 @@ describe('historical acquisition service', () => {
     const raws = await database.db.select().from(historicalRawResponses);
     expect(raws).toHaveLength(3);
   });
+
+  it('persists an 8,200-row chunk in batches without hitting bound limits', async () => {
+    createFixture();
+    const base = Date.parse('2026-09-01T00:00:00Z');
+    // 11 columns x 8,200 rows = 90,200 params: a single INSERT would fail.
+    const candles = Array.from({ length: 8200 }, (_, i) => ({
+      timestamp: base + i * 60000,
+      open: 100,
+      high: 110,
+      low: 90,
+      close: 105,
+      volume: 1000,
+      openInterest: null,
+    }));
+    const client = new FakeHistoricalClient(
+      new Map([[0, [{ kind: 'data', candles }]]]),
+    );
+
+    const result = await prepareHistoricalDataset(deps(client), {
+      ...baseRequest,
+      from: '2026-09-01',
+      to: '2026-09-23',
+    });
+
+    expect(result.status).toBe('COMPLETE');
+    expect(result.chunks_total).toBe(1);
+    expect(result.record_count).toBe(8200);
+
+    const { database } = fixture as Fixture;
+    const stored = await database.db
+      .select()
+      .from(historicalCandles)
+      .where(eq(historicalCandles.datasetId, result.dataset_id));
+    expect(stored).toHaveLength(8200);
+  });
+
+  it('rolls back the whole chunk when a late batch fails', async () => {
+    createFixture();
+    const base = Date.parse('2026-09-01T00:00:00Z');
+    const candles = Array.from({ length: 8000 }, (_, i) => ({
+      timestamp: base + i * 60000,
+      open: 100,
+      high: 110,
+      low: 90,
+      close: 105,
+      volume: 1000,
+      openInterest: null,
+    }));
+    // Poison a row in the LAST batch (index 7,500 of 8,000 at 500/batch):
+    // batches 1-15 insert fine, then the transaction must roll back all.
+    candles[7500] = {
+      timestamp: null as unknown as number,
+      open: 100,
+      high: 110,
+      low: 90,
+      close: 105,
+      volume: 1000,
+      openInterest: null,
+    };
+    const client = new FakeHistoricalClient(
+      new Map([[0, [{ kind: 'data', candles }]]]),
+    );
+
+    const result = await prepareHistoricalDataset(deps(client), {
+      ...baseRequest,
+      from: '2026-09-01',
+      to: '2026-09-23',
+    });
+
+    expect(result.status).toBe('PARTIAL');
+    expect(result.record_count).toBe(0);
+
+    const { database } = fixture as Fixture;
+    const stored = await database.db
+      .select()
+      .from(historicalCandles)
+      .where(eq(historicalCandles.datasetId, result.dataset_id));
+    expect(stored).toHaveLength(0);
+    const chunks = await database.db
+      .select()
+      .from(historicalChunks)
+      .where(eq(historicalChunks.datasetId, result.dataset_id));
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.status).toBe('FAILED');
+    const raws = await database.db
+      .select()
+      .from(historicalRawResponses)
+      .where(eq(historicalRawResponses.datasetId, result.dataset_id));
+    expect(raws).toHaveLength(0);
+  });
 });

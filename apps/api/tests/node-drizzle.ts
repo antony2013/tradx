@@ -164,13 +164,22 @@ class NodeSQLiteSession {
     return this.prepareQuery(query, undefined, 'all', false).values();
   }
 
-  transaction(callback: (tx: NodeSQLiteTransaction) => unknown, config: any = {}) {
-    const tx = new NodeSQLiteTransaction(this, this.dialect, this.schema);
+  async transaction(callback: (tx: any) => unknown, config: any = {}) {
+    // Mirror real drizzle: the callback receives a full database facade
+    // (tx.insert/tx.update/...), not the bare session. Awaiting supports
+    // async callbacks, since query builders only execute on await.
+    const txSession = new NodeSQLiteTransaction(this, this.dialect, this.schema);
+    const txDb = new BaseSQLiteDatabase(
+      'sync',
+      this.dialect,
+      txSession as any,
+      this.schema as any,
+    ) as any;
     const behavior: 'deferred' | 'immediate' | 'exclusive' =
       config.behavior ?? 'deferred';
     this.client.exec(`BEGIN ${behavior}`);
     try {
-      const result = callback(tx);
+      const result = await callback(txDb);
       this.client.exec('COMMIT');
       return result;
     } catch (error) {
@@ -190,6 +199,28 @@ class NodeSQLiteTransaction {
 
   run(query: any) {
     return this.session.run(query);
+  }
+
+  // Drizzle routes query execution through prepareOneTimeQuery/execute;
+  // forward to the underlying session so tx queries build identically.
+  prepareOneTimeQuery(
+    query: any,
+    fields: any,
+    executeMethod: 'run' | 'all' | 'get',
+    isArrayMode: boolean,
+    customResultMapper?: any,
+  ) {
+    return this.session.prepareOneTimeQuery(
+      query,
+      fields,
+      executeMethod,
+      isArrayMode,
+      customResultMapper,
+    );
+  }
+
+  execute(query: any) {
+    return this.session.prepareOneTimeQuery(query, undefined, 'all', false).all();
   }
 
   all(query: any) {

@@ -30,10 +30,41 @@ def test_agent_builds_with_tools() -> None:
     import sys
 
     sys.path.insert(0, ".")
+    from langchain_core.language_models.fake_chat_models import (
+        GenericFakeChatModel,
+    )
+    from langchain_core.messages import AIMessage
+
     from data_collection.agent import AGENT_NAME, build_data_collection_agent
 
     assert AGENT_NAME == "data_collection"
-    build_data_collection_agent()
+    build_data_collection_agent(
+        GenericFakeChatModel(messages=iter([AIMessage(content="hi")]))
+    )
+
+
+def test_agent_requires_explicit_model() -> None:
+    import sys
+
+    sys.path.insert(0, ".")
+    from data_collection.agent import build_data_collection_agent
+
+    try:
+        build_data_collection_agent(None)
+    except RuntimeError as error:
+        assert "AGENT_MODEL" in str(error)
+    else:
+        raise AssertionError("expected RuntimeError for missing model")
+
+
+def test_subagent_model_override() -> None:
+    import sys
+
+    sys.path.insert(0, ".")
+    from data_collection.subagents import market_info_spec
+
+    assert "model" not in market_info_spec()
+    assert market_info_spec("cheap-model")["model"] == "cheap-model"
 
 
 def test_prompt_synced_with_tools() -> None:

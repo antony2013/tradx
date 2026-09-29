@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 from deepagents.middleware.filesystem import (
     FilesystemMiddleware,
@@ -57,11 +57,9 @@ def filesystem_locked_middleware() -> FilesystemMiddleware:
     )  # type: ignore[call-arg]  # installed stubs lag 0.7.19 runtime kwargs
 
 
-def market_info_spec() -> SubAgent:
+def market_info_spec(model: Any = None) -> SubAgent:
     # cast: installed stubs lag the runtime TypedDict (which has "mode").
-    return cast(
-        SubAgent,
-        {
+    spec: dict = {
             "name": MARKET_INFO_NAME,
             "description": (
                 "Reads market-information analytics: option/futures smartlists, "
@@ -83,22 +81,24 @@ Rules:
         "middleware": [filesystem_locked_middleware()],
         "tools": [
             get_options_smartlist,
-                get_futures_smartlist,
-                get_oi,
-                get_change_oi,
-                get_max_pain,
-                get_pcr,
-            ],
-        },
-    )
+            get_futures_smartlist,
+            get_oi,
+            get_change_oi,
+            get_max_pain,
+            get_pcr,
+        ],
+    }
+    # A distinct cheap/fast model for snapshot duty; absent key inherits
+    # the main agent's model (framework default).
+    if model is not None:
+        spec["model"] = model
+    return cast(SubAgent, spec)
 
 
-def market_status_spec() -> SubAgent:
+def market_status_spec(model: Any = None) -> SubAgent:
     # cast: installed stubs lag the runtime TypedDict (which has "mode").
-    return cast(
-        SubAgent,
-        {
-            "name": MARKET_STATUS_NAME,
+    spec: dict = {
+        "name": MARKET_STATUS_NAME,
             "description": (
                 "Reads market-status facts: live exchange status, session "
                 "timings for a date, and the exchange holiday list. "
@@ -121,8 +121,10 @@ Rules:
         "middleware": [filesystem_locked_middleware()],
         "tools": [
             get_exchange_status,
-                get_market_timings,
-                get_market_holidays,
-            ],
-        },
-    )
+            get_market_timings,
+            get_market_holidays,
+        ],
+    }
+    if model is not None:
+        spec["model"] = model
+    return cast(SubAgent, spec)

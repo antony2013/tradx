@@ -19,6 +19,8 @@ def test_settings_defaults() -> None:
     assert (
         load_settings().nvidia_base_url == "https://integrate.api.nvidia.com/v1"
     )
+    assert load_settings().agent_model == ""
+    assert load_settings().subagent_model == ""
 
 
 def test_settings_env_override(monkeypatch: MonkeyPatch) -> None:

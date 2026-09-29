@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     app_name: str = Field(default="tradex-agent")
     tradx_api_url: str = Field(default="http://localhost:3000")
     nvidia_base_url: str = Field(default="https://integrate.api.nvidia.com/v1")
+    # Model selection is env-driven; empty means "must be passed explicitly".
+    # Example: AGENT_MODEL=nvidia/...ultra... for collection work,
+    # SUBAGENT_MODEL=<a smaller instruct model> (or empty to inherit the
+    # main model) for cheap snapshot subagents.
+    agent_model: str = Field(default="")
+    subagent_model: str = Field(default="")
 
 
 def load_settings() -> Settings:

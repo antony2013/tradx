@@ -42,18 +42,32 @@ def resolve_model(spec: Any | None) -> Any | None:
 
     if not os.environ.get("NVIDIA_API_KEY"):
         raise RuntimeError("NVIDIA_API_KEY is not set; cannot use nvidia/* model")
+    settings = load_settings()
     return ChatOpenAI(
         model=spec,
-        base_url=load_settings().nvidia_base_url,
+        base_url=settings.nvidia_base_url,
         api_key=SecretStr(os.environ["NVIDIA_API_KEY"]),
         temperature=0.0,
+        request_timeout=300,
+        max_retries=2,
+    )  # type: ignore[call-arg]  # installed stubs lag runtime kwargs
+
+
+def build_data_collection_agent(model: Any):  # type: ignore[no-untyped-def]
+    """Build the agent. An explicit model is required (no silent default)."""
+    resolved = resolve_model(model)
+    if resolved is None:
+        raise RuntimeError(
+            "No model configured: pass a model explicitly or set AGENT_MODEL."
+        )
+    settings = load_settings()
+    subagent_model = (
+        resolve_model(settings.subagent_model)
+        if settings.subagent_model
+        else None
     )
-
-
-def build_data_collection_agent(model: Any | None = None):  # type: ignore[no-untyped-def]
-    """Build the agent. Model required only to invoke, not to build."""
     return create_deep_agent(
-        model=resolve_model(model),
+        model=resolved,
         # Collection tools live on the main agent: one call per operation,
         # no delegation round-trips. Error-as-result + hint in every tool
         # is the retry-loop protection (see prompt: fix once, then report).
@@ -73,8 +87,8 @@ def build_data_collection_agent(model: Any | None = None):  # type: ignore[no-un
         # same deny rule when their specs omit permissions.
         middleware=[filesystem_locked_middleware()],  # type: ignore[list-item]  # stubs lag runtime generics
         subagents=[
-            market_info_spec(),
-            market_status_spec(),
+            market_info_spec(subagent_model),
+            market_status_spec(subagent_model),
         ],
         name=AGENT_NAME,
         permissions=[FILESYSTEM_DENY_ALL],

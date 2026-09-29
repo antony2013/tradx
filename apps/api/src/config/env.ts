@@ -59,6 +59,10 @@ const envSchema = z.object({
   // RUNNING chunk, no recent dataset heartbeat) older than this is treated
   // as crashed and becomes resumable instead of reused forever.
   HISTORICAL_STALE_AFTER_MS: z.coerce.number().int().min(1000).default(900000),
+  // Chunk fetch parallelism: how many chunk FETCHES may overlap.
+  // Persistence stays effectively serialized (single-threaded event loop +
+  // one atomic transaction per chunk). AUTH_HALT stops new fetches.
+  HISTORICAL_FETCH_CONCURRENCY: z.coerce.number().int().min(1).default(3),
   // Shared Upstox HTTP timeout (historical, search, expiries, market).
   // HISTORICAL_REQUEST_TIMEOUT_MS is a deprecated alias: honored when the
   // new name is unset so existing deployments keep their tuned value.

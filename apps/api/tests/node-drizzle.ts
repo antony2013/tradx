@@ -164,10 +164,13 @@ class NodeSQLiteSession {
     return this.prepareQuery(query, undefined, 'all', false).values();
   }
 
-  async transaction(callback: (tx: any) => unknown, config: any = {}) {
+  transaction(callback: (tx: any) => unknown, config: any = {}) {
     // Mirror real drizzle: the callback receives a full database facade
-    // (tx.insert/tx.update/...), not the bare session. Awaiting supports
-    // async callbacks, since query builders only execute on await.
+    // (tx.insert/tx.update/...), not the bare session.
+    // Stays SYNCHRONOUS for sync callbacks so BEGIN..COMMIT is atomic with
+    // no interleaving microtask (matches bun:sqlite). Async callbacks go
+    // through a promise path with the same autocommit caveat as the real
+    // driver: only use sync callbacks for atomicity.
     const txSession = new NodeSQLiteTransaction(this, this.dialect, this.schema);
     const txDb = new BaseSQLiteDatabase(
       'sync',
@@ -178,14 +181,27 @@ class NodeSQLiteSession {
     const behavior: 'deferred' | 'immediate' | 'exclusive' =
       config.behavior ?? 'deferred';
     this.client.exec(`BEGIN ${behavior}`);
+    let result: unknown;
     try {
-      const result = await callback(txDb);
-      this.client.exec('COMMIT');
-      return result;
+      result = callback(txDb);
     } catch (error) {
       this.client.exec('ROLLBACK');
       throw error;
     }
+    if (result !== null && typeof result === 'object' && typeof (result as Promise<unknown>).then === 'function') {
+      return (result as Promise<unknown>).then(
+        (value) => {
+          this.client.exec('COMMIT');
+          return value;
+        },
+        (error) => {
+          this.client.exec('ROLLBACK');
+          throw error;
+        },
+      );
+    }
+    this.client.exec('COMMIT');
+    return result;
   }
 }
 

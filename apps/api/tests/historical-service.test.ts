@@ -19,7 +19,7 @@ import {
 import { computeDatasetId } from '../src/historical/dataset-id';
 import { validateHistoricalRequest } from '../src/historical/validate';
 import type { Logger } from '../src/lib/logger';
-import { candle, FakeHistoricalClient } from './fake-historical';
+import { candle, FakeHistoricalClient, type ScriptedChunk } from './fake-historical';
 import { removeDirectory } from './test-utils';
 
 const nullLogger: Logger = {
@@ -169,48 +169,95 @@ describe('historical acquisition service', () => {
 
   it('keeps prior chunks on auth failure and stops without retrying it', async () => {
     createFixture();
+    // Five monthly chunks, pool of 3: chunk 0 halts auth while chunks 1-2
+    // are in flight (they settle); chunks 3-4 are never started.
+    const fiveMonth = { ...baseRequest, from: '2026-05-01', to: '2026-09-23' };
+    const monthCandle = (month: string) => candle(`2026-${month}-02`, 100);
     const client = new FakeHistoricalClient(
       new Map([
-        [0, [{ kind: 'data', candles: [candle('2026-07-02', 100)] }]],
-        [
-          1,
-          [
-            {
-              kind: 'error',
-              code: 'AUTHENTICATION_ERROR',
-              message: 'token expired',
-            },
-          ],
-        ],
-        [2, [{ kind: 'data', candles: [candle('2026-09-02', 120)] }]],
+        [0, [{ kind: 'error', code: 'AUTHENTICATION_ERROR', message: 'token expired' }]],
+        [1, [{ kind: 'data', candles: [monthCandle('06')] }]],
+        [2, [{ kind: 'data', candles: [monthCandle('07')] }]],
+        [3, [{ kind: 'data', candles: [monthCandle('08')] }]],
+        [4, [{ kind: 'data', candles: [monthCandle('09')] }]],
       ]),
     );
 
     await expect(
-      prepareHistoricalDataset(deps(client), baseRequest),
+      prepareHistoricalDataset(deps(client), fiveMonth),
     ).rejects.toThrow(HistoricalError);
 
-    // Chunk 2 never attempted; chunk 0 preserved.
-    expect(client.calls.map((c) => c.chunkIndex)).toEqual([0, 1]);
+    // In-flight chunks settle; queued chunks 3-4 never attempted.
+    expect(client.calls.map((c) => c.chunkIndex).sort()).toEqual([0, 1, 2]);
 
     const { database } = fixture as Fixture;
     const datasets = await database.db.select().from(historicalDatasets);
     expect(datasets[0]?.status).toBe('PARTIAL');
-    const candles = await database.db.select().from(historicalCandles);
-    expect(candles).toHaveLength(1);
+    const chunks = (
+      await database.db.select().from(historicalChunks)
+    ).sort((a, b) => a.chunkIndex - b.chunkIndex);
+    expect(chunks.map((c) => c.status)).toEqual([
+      'FAILED',
+      'COMPLETE',
+      'COMPLETE',
+      'PENDING',
+      'PENDING',
+    ]);
 
     // A later retry with valid auth resumes only the missing chunks.
     const retry = new FakeHistoricalClient(
       new Map([
-        [1, [{ kind: 'data', candles: [candle('2026-08-02', 110)] }]],
-        [2, [{ kind: 'data', candles: [candle('2026-09-02', 120)] }]],
+        [0, [{ kind: 'data', candles: [monthCandle('05')] }]],
+        [3, [{ kind: 'data', candles: [monthCandle('08')] }]],
+        [4, [{ kind: 'data', candles: [monthCandle('09')] }]],
       ]),
     );
-    const resumed = await prepareHistoricalDataset(deps(retry), baseRequest);
+    const resumed = await prepareHistoricalDataset(deps(retry), fiveMonth);
     expect(resumed.status).toBe('COMPLETE');
-    expect(retry.calls.map((c) => c.chunkIndex)).toEqual([1, 2]);
+    expect(retry.calls.map((c) => c.chunkIndex).sort()).toEqual([0, 3, 4]);
     const all = await database.db.select().from(historicalCandles);
-    expect(all).toHaveLength(3);
+    expect(all).toHaveLength(5);
+  });
+
+  it('fetches identically sequential or parallel (determinism)', async () => {
+    const script = (): Map<number, ScriptedChunk[]> =>
+      new Map([
+        [0, [{ kind: 'data', candles: [candle('2026-07-02', 100)] }]],
+        [1, [{ kind: 'data', candles: [candle('2026-08-02', 110)] }]],
+        [2, [{ kind: 'data', candles: [candle('2026-09-02', 120)] }]],
+      ]);
+    const seqFixture = createFixture();
+    const seq = await prepareHistoricalDataset(
+      {
+        db: seqFixture.database.db,
+        client: new FakeHistoricalClient(script()),
+        logger: nullLogger,
+        config: { schemaVersion: 'test-1', fetchConcurrency: 1 },
+      },
+      baseRequest,
+    );
+    const seqRows = (
+      await seqFixture.database.db.select().from(historicalCandles)
+    ).map((r) => [r.timestamp, r.open, r.high, r.low, r.close, r.volume]);
+
+    createFixture();
+    const { database } = fixture as Fixture;
+    const par = await prepareHistoricalDataset(
+      {
+        db: database.db,
+        client: new FakeHistoricalClient(script()),
+        logger: nullLogger,
+        config: { schemaVersion: 'test-1', fetchConcurrency: 3 },
+      },
+      baseRequest,
+    );
+    const parRows = (await database.db.select().from(historicalCandles)).map(
+      (r) => [r.timestamp, r.open, r.high, r.low, r.close, r.volume],
+    );
+
+    expect(par.dataset_id).toBe(seq.dataset_id);
+    expect(par.status).toBe('COMPLETE');
+    expect(parRows.sort()).toEqual(seqRows.sort());
   });
 
   it('marks FAILED when nothing was acquired before auth failure', async () => {

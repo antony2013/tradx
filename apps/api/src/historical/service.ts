@@ -27,10 +27,19 @@ export type HistoricalServiceConfig = {
    * layer; defaults to DEFAULT_STALE_AFTER_MS so unit fixtures stay small.
    */
   staleAfterMs?: number;
+  /**
+   * Max overlapping chunk fetches. Persistence needs no lock: the event
+   * loop serializes the synchronous, single-transaction chunk writes.
+   * Defaults to DEFAULT_FETCH_CONCURRENCY.
+   */
+  fetchConcurrency?: number;
 };
 
 /** Default stale-run lease: 15 minutes without progress. */
 export const DEFAULT_STALE_AFTER_MS = 900000;
+
+/** Default chunk fetch parallelism. */
+export const DEFAULT_FETCH_CONCURRENCY = 3;
 
 // Rows per candle INSERT inside a chunk transaction: 500 rows x 11 columns
 // stays far below SQLite's bound-parameter ceiling.
@@ -195,36 +204,61 @@ export async function prepareHistoricalDataset(
 
   let completed = dataset.chunksCompleted;
   let failed = dataset.chunksFailed;
+  let authHalt = false;
 
-  for (const chunk of pending) {
-    const outcome = await acquireChunk(deps, datasetId, request, chunk);
-    if (outcome === 'COMPLETE') {
-      completed += 1;
-    } else {
-      failed += 1;
+  // Bounded worker pool over pending chunks. Only FETCHES overlap; each
+  // chunk's persistence is one synchronous transaction, so writes never
+  // interleave. Totals are order-free (UNIQUE + recount at finalize), so
+  // the result is identical to sequential. AUTH_HALT stops new fetches;
+  // in-flight chunks settle, then the dataset finalizes halted.
+  const queue = [...pending];
+  const workerCount = Math.max(
+    1,
+    Math.min(config.fetchConcurrency ?? DEFAULT_FETCH_CONCURRENCY, queue.length),
+  );
+  const runWorker = async (): Promise<void> => {
+    while (queue.length > 0) {
+      if (authHalt) {
+        return;
+      }
+      const chunk = queue.shift() as ChunkRow;
+      const outcome = await acquireChunk(deps, datasetId, request, chunk);
+      // Halt flag FIRST and synchronously: anything already in flight
+      // settles, but no worker starts another fetch after this point.
+      if (outcome === 'AUTH_HALT') {
+        authHalt = true;
+      }
+      if (outcome === 'COMPLETE') {
+        completed += 1;
+      } else {
+        failed += 1;
+      }
+      await db
+        .update(historicalDatasets)
+        .set({
+          chunksCompleted: completed,
+          chunksFailed: failed,
+          updatedAt: Date.now(),
+        })
+        .where(eq(historicalDatasets.datasetId, datasetId));
     }
-    await db
-      .update(historicalDatasets)
-      .set({
-        chunksCompleted: completed,
-        chunksFailed: failed,
-        updatedAt: Date.now(),
-      })
-      .where(eq(historicalDatasets.datasetId, datasetId));
+  };
+  await Promise.all(
+    Array.from({ length: workerCount }, () => runWorker()),
+  );
 
-    if (outcome === 'AUTH_HALT') {
-      const terminal: DatasetStatus = completed > 0 ? 'PARTIAL' : 'FAILED';
-      const finished = await finalizeDataset(db, datasetId, terminal);
-      logger.info(
-        terminal === 'PARTIAL' ? 'dataset_partial' : 'dataset_completed',
-        `Dataset ${terminal} after authentication failure`,
-        { datasetId },
-      );
-      throw new HistoricalError(
-        'AUTHENTICATION_ERROR',
-        'Upstox authentication failed; provide a valid access token and retry',
-      );
-    }
+  if (authHalt) {
+    const terminal: DatasetStatus = completed > 0 ? 'PARTIAL' : 'FAILED';
+    const finished = await finalizeDataset(db, datasetId, terminal);
+    logger.info(
+      terminal === 'PARTIAL' ? 'dataset_partial' : 'dataset_completed',
+      `Dataset ${terminal} after authentication failure`,
+      { datasetId },
+    );
+    throw new HistoricalError(
+      'AUTHENTICATION_ERROR',
+      'Upstox authentication failed; provide a valid access token and retry',
+    );
   }
 
   const terminal: DatasetStatus = failed === 0 ? 'COMPLETE' : 'PARTIAL';

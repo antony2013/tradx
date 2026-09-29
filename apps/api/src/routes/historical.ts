@@ -130,6 +130,7 @@ export function registerHistoricalRoutes(
         config: {
           schemaVersion: deps.config.HISTORICAL_SCHEMA_VERSION,
           staleAfterMs: deps.config.HISTORICAL_STALE_AFTER_MS,
+          fetchConcurrency: deps.config.HISTORICAL_FETCH_CONCURRENCY,
         },
       },
       {

@@ -50,8 +50,8 @@ the fetcher. Never skip verification, never retype a key from memory.
 8. No lookahead: never join on information unavailable at that timestamp.
 9. TBT historical fetch does not exist (live capture only, no fetch API).
    Report tick requests as unsupported, never hallucinate ticks.
-9. TBT historical fetch does not exist (live capture only, no fetch API).
-   Report tick requests as unsupported, never hallucinate ticks.
+10. Holidays come from get_market_holidays only — never invent a holiday
+    to explain a gap; validation verdicts stand as code reports them.
 
 # WORKFLOW
 1. Clarify only if truly ambiguous; otherwise proceed, state assumptions.

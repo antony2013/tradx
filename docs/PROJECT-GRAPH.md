@@ -1,10 +1,10 @@
 # Tradex Project Graph
 
-Generated from the actual repository (imports, routes, migrations, tests).
+Generated from the actual repository (imports, routes, tests).
 Mermaid diagrams render on GitHub / VS Code.
 
-> Scope (2026-09-27): TypeScript backend only (`apps/api`, 40 src files).
-> Python `apps/agents` and `apps/agent-ui` were removed by the owner.
+> Scope (2026-09-29): Bun + TypeScript API (`apps/api`, 42 src files) and
+> Python Data Collection Agent (`apps/agent`, 9 py files).
 
 ## 1. System map
 
@@ -13,48 +13,59 @@ flowchart TB
     subgraph Upstox[Upstox API]
         WS[V3 Market Feed WS]
         HIST[V3 Historical Candles]
-        SEARCH[V2 Instrument Search]
-        EXP[V2 Expired Instruments]
+        V2[V2 Search / Expiries / Market]
     end
     subgraph TS[Bun + TypeScript — apps/api]
-        CAP[Raw Capture<br/>WS → queue → SQLite]
+        CAP[Raw Capture<br/>manual start/stop → WS → queue → SQLite]
         HACQ[Historical Acquisition<br/>chunk → normalize → SQLite]
         VAL[Validation<br/>VALID / INVALID / INCOMPLETE]
         INST[Instruments<br/>search + expiries + contracts]
+        MKT[Market<br/>OI / smartlists / status / timings / holidays]
         HTTP[Hono API + /docs]
     end
-    subgraph Store[SQLite — data/ ~120MB]
+    subgraph Store[SQLite — data/]
         T[(9 tables)]
+    end
+    subgraph AG[Python — apps/agent]
+        MAIN[Data Collection Agent<br/>0 direct tools, delegates only]
+        SUBS[5 isolated subagents]
     end
     WS --> CAP --> T
     HIST --> HACQ --> T
-    SEARCH --> INST
-    EXP --> INST
+    V2 --> INST
+    V2 --> MKT
     HTTP --> T
+    MAIN --> SUBS
+    SUBS --> HTTP
 ```
 
-## 2. Module dependencies
+## 2. Module dependencies (API)
 
 ```mermaid
 flowchart TB
-    SERVER[src/server.ts] --> APP[src/app.ts]
+    SERVER[src/server.ts<br/>no auto-start] --> APP[src/app.ts]
     SERVER --> CAPSVC[src/capture/service.ts]
     SERVER --> CAPSTORE[src/capture/store.ts]
     SERVER --> WS2[src/capture/upstox-source.ts]
     SERVER --> HISTCLI[src/historical/upstox-client.ts]
     SERVER --> SEARCHCLI[src/instruments/upstox-search.ts]
     SERVER --> EXPCLI[src/instruments/upstox-expiries.ts]
+    SERVER --> MKTCLI[src/instruments/upstox-market.ts]
     APP --> R1[src/routes/health.ts]
     APP --> R2[src/routes/ready.ts]
     APP --> R3[src/routes/capture.ts]
     APP --> R4[src/routes/historical.ts]
     APP --> R5[src/routes/instruments.ts]
     APP --> SCH[src/openapi/schemas.ts]
+    APP --> ENV[src/config/env.ts<br/>UPSTOX_REQUEST_TIMEOUT_MS]
+    R3 --> CAPSVC
     R4 --> HSVC[src/historical/service.ts]
     R4 --> HVAL[src/historical/validation.ts]
+    R5 --> SEARCHCLI
+    R5 --> EXPCLI
+    R5 --> MKTCLI
     HSVC --> HCH[src/historical/chunks.ts]
     HSVC --> HID[src/historical/dataset-id.ts]
-    HSVC --> HV[src/historical/validate.ts]
     HVAL --> HDET[src/historical/detectors.ts]
     HVAL --> HSES[src/historical/sessions.ts]
     HID --> CANON[src/capture/canonical.ts]
@@ -65,29 +76,35 @@ flowchart TB
     CAPSTORE --> DBSCH
 ```
 
-## 3. HTTP endpoints (14)
+## 3. HTTP endpoints (27)
 
-| Method | Path |
+| Tag | Method + Path |
 |---|---|
-| GET | `/health` |
-| GET | `/ready` |
-| GET | `/capture/status` |
-| GET | `/capture/stats` |
-| GET | `/capture/subscriptions` |
-| POST | `/capture/subscriptions` |
-| POST | `/historical/datasets` |
-| GET | `/historical/datasets/{datasetId}` |
-| POST | `/historical/datasets/{datasetId}/validation` |
-| GET | `/historical/datasets/{datasetId}/validation` |
-| GET | `/instruments/search` |
-| GET | `/instruments/expiries` |
-| GET | `/instruments/option-contracts` |
-| GET | `/instruments/expired-option-contracts` |
-| GET | `/instruments/expired-future-contracts` |
-| GET | `/instruments/expired-candles` |
-| GET | `/openapi.json`, `/docs` |
+| system | `GET /health`, `GET /ready` |
+| capture | `GET /capture/status`, `GET /capture/stats`, `GET /capture/subscriptions`, `POST /capture/subscriptions`, `POST /capture/start`, `POST /capture/stop` |
+| historical | `POST /historical/datasets`, `GET /historical/datasets/{datasetId}`, `POST /historical/datasets/{datasetId}/validation`, `GET /historical/datasets/{datasetId}/validation` |
+| instruments | `GET /instruments/search`, `GET /instruments/expiries`, `GET /instruments/option-contracts`, `GET /instruments/expired-option-contracts`, `GET /instruments/expired-future-contracts`, `GET /instruments/expired-candles` |
+| market | `GET /market/smartlists/options`, `GET /market/smartlists/futures`, `GET /market/oi`, `GET /market/change-oi`, `GET /market/max-pain`, `GET /market/pcr`, `GET /market/status`, `GET /market/timings`, `GET /market/holidays` |
+| — | `GET /openapi.json`, `/docs` (Scalar UI) |
 
-## 4. Database tables (data/research.db + data/capture/)
+Capture never auto-starts: boot is always `STOPPED`; `POST /capture/start`
+connects (idempotent), `POST /capture/stop` flushes and disconnects.
+
+## 4. Agent (apps/agent — 16 tools, 5 subagents)
+
+| Subagent | Tools |
+|---|---|
+| `instrument_key_finder` | `search_instruments`, `fetch_option_contracts` |
+| `history_data_fetcher` | `fetch_historical`, `validate_dataset` |
+| `expiry_data_fetcher` | `fetch_expiries`, `fetch_expired_option_contracts`, `fetch_expired_future_contracts`, `fetch_historical`, `validate_dataset` |
+| `market_information` | `get_options_smartlist`, `get_futures_smartlist`, `get_oi`, `get_change_oi`, `get_max_pain`, `get_pcr` |
+| `market_status` | `get_exchange_status`, `get_market_timings`, `get_market_holidays` |
+
+Main agent holds zero data tools and routes everything through delegation.
+Filesystem is hard-denied at build (`FILESYSTEM_DENY_ALL`, inherited by
+subagents). Non-secret config resolves through `settings.py`.
+
+## 5. Database tables (data/research.db + data/capture/)
 
 | Table | Writer |
 |---|---|
@@ -96,16 +113,25 @@ flowchart TB
 | `historical_datasets`, `historical_chunks`, `historical_raw_responses`, `historical_candles` | historical/service.ts |
 | `validation_reports` | historical/validation.ts |
 
-## 5. Tests — 104 pass, 0 fail (19 files: `bun test` + vitest + `tsc`)
+## 6. Tests — 117 API (bun + vitest, 19 files) + 16 agent (pytest)
 
-Capture (protobuf/batch/queue/store/service/subscriptions) · historical
-(chunks/client/dataset/service/endpoints/validation) · instruments
-(search/expiries/contracts) · app/config/database.
+API: capture (protobuf incl. market-info map regression, batch, queue,
+store, service, subscriptions, manual start/stop lifecycle) · historical
+(chunks/client/dataset/service/endpoints/validation) · instruments +
+market (search/expiries/contracts/status/timings/holidays, token hygiene,
+auth mapping) · app/config (timeout precedence)/database. `tsc` clean.
 
-## 6. Key contracts
+Agent: prompt sync/boundaries, subagent toolsets (5), tool URL-forwarding
++ error-as-result, caps, filesystem deny, settings defaults/override.
+`ruff` + `mypy` clean.
+
+## 7. Key contracts
 
 - `instrumentKey` is the canonical instrument identity (no resolver).
 - `dataset_id` = SHA-256(canonical request) — single identity scheme.
-- Instrument discovery is read-only; nothing is stored.
+- Instrument/market discovery is read-only; nothing is stored.
 - Expired keys carry a date suffix (`NSE_FO|58422|03-10-2024`).
 - Upstox minute intervals are open-ended (`\d+minute` verified live).
+- Search `expiry` keywords are unreliable upstream (`current_week`
+  returned zero rows live 2026-09-29 while explicit dates worked) —
+  prefer `YYYY-MM-DD`.

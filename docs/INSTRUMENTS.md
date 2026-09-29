@@ -39,6 +39,11 @@ Discovery only — nothing is stored.
 `expiry` accepts a date or keyword; `date` is `YYYY-MM-DD`; `interval` is
 days, `bucket_interval` minutes. Discovery only — nothing is stored.
 
+> Expiry keywords are unreliable on `/instruments/search`: `current_week`
+> returned zero rows live on expiry day 2026-09-29 while the same query
+> with `expiry=2026-09-29` returned 10 rows (`next_month` worked).
+> Prefer an explicit `YYYY-MM-DD` date for search.
+
 Typical F&O history chain (ref §9.2): underlying search → expiries →
 expired contracts → expired candles (`POST /historical/datasets` does not
 take expired keys today — active keys only).

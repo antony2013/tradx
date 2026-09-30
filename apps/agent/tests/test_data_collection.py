@@ -83,11 +83,15 @@ def test_prompt_synced_with_tools() -> None:
         get_capture_status,
         get_change_oi,
         get_exchange_status,
+        get_full_quotes,
         get_futures_smartlist,
+        get_ltp_quotes,
         get_market_holidays,
         get_market_timings,
         get_max_pain,
+        get_ohlc_quotes,
         get_oi,
+        get_option_greeks,
         get_options_smartlist,
         get_pcr,
         get_subscriptions,
@@ -115,11 +119,15 @@ def test_prompt_synced_with_tools() -> None:
             get_capture_status,
             get_change_oi,
             get_exchange_status,
+            get_full_quotes,
             get_futures_smartlist,
+            get_ltp_quotes,
             get_market_holidays,
             get_market_timings,
             get_max_pain,
+            get_ohlc_quotes,
             get_oi,
+            get_option_greeks,
             get_options_smartlist,
             get_pcr,
             get_subscriptions,
@@ -142,6 +150,7 @@ def test_prompt_synced_with_tools() -> None:
         subagents_module.MARKET_INFO_NAME,
         subagents_module.MARKET_STATUS_NAME,
         subagents_module.CAPTURE_CONTROLLER_NAME,
+        subagents_module.MARKET_QUOTES_NAME,
     }
     for name in spec_names:
         assert name in lowered, name
@@ -162,6 +171,7 @@ def test_all_subagents_assigned() -> None:
     from data_collection.subagents import (
         capture_controller_spec,
         market_info_spec,
+        market_quotes_spec,
         market_status_spec,
     )
 
@@ -195,6 +205,15 @@ def test_all_subagents_assigned() -> None:
         "start_capture",
         "stop_capture",
     }
+    quotes = market_quotes_spec()
+    assert quotes["name"] == "market_quotes"
+    assert quotes["mode"] == "isolated"
+    assert {t.name for t in quotes["tools"]} == {
+        "get_full_quotes",
+        "get_ohlc_quotes",
+        "get_ltp_quotes",
+        "get_option_greeks",
+    }
 
 
 def test_subagents_hide_filesystem_tools() -> None:
@@ -204,6 +223,7 @@ def test_subagents_hide_filesystem_tools() -> None:
     from data_collection.subagents import (
         capture_controller_spec,
         market_info_spec,
+        market_quotes_spec,
         market_status_spec,
     )
 
@@ -211,6 +231,7 @@ def test_subagents_hide_filesystem_tools() -> None:
         market_info_spec(),
         market_status_spec(),
         capture_controller_spec(),
+        market_quotes_spec(),
     ):
         middlewares = spec.get("middleware", [])
         assert len(middlewares) == 1
@@ -694,6 +715,44 @@ def test_capture_tools_forward(monkeypatch) -> None:  # type: ignore[no-untyped-
         )
     )
     assert out["instrument_keys"] == ["NSE_FO|1"]
+
+
+def test_quote_tools_forward(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import sys
+
+    sys.path.insert(0, ".")
+    from data_collection.quote_tools import (
+        get_full_quotes,
+        get_ltp_quotes,
+        get_ohlc_quotes,
+        get_option_greeks,
+    )
+
+    seen: dict = {}
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        seen.setdefault("urls", []).append(request.full_url)
+        return _fake_ok({"data": {"NSE_INDEX|Nifty 50": {}}})(request)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    out = json.loads(get_full_quotes.invoke({"instrument_keys": "NSE_INDEX|Nifty 50"}))
+    assert "/market/quotes?" in seen["urls"][0]
+    assert out["data"] == {"NSE_INDEX|Nifty 50": {}}
+
+    out = json.loads(
+        get_ohlc_quotes.invoke(
+            {"instrument_keys": "NSE_INDEX|Nifty 50", "interval": "1d"}
+        )
+    )
+    assert "/market/quotes/ohlc?" in seen["urls"][1]
+    assert "interval=1d" in seen["urls"][1]
+
+    out = json.loads(get_ltp_quotes.invoke({"instrument_keys": "NSE_INDEX|Nifty 50"}))
+    assert "/market/quotes/ltp?" in seen["urls"][2]
+
+    out = json.loads(get_option_greeks.invoke({"instrument_keys": "NSE_FO|73887"}))
+    assert "/market/quotes/greeks?" in seen["urls"][3]
+    assert out["data"] == {"NSE_INDEX|Nifty 50": {}}
 
 
 def test_tools_return_errors_not_raise(monkeypatch) -> None:  # type: ignore[no-untyped-def]

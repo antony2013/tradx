@@ -25,6 +25,7 @@ from .subagents import (
     capture_controller_spec,
     filesystem_locked_middleware,
     market_info_spec,
+    market_quotes_spec,
     market_status_spec,
 )
 
@@ -97,6 +98,7 @@ def build_data_collection_agent(model: Any):  # type: ignore[no-untyped-def]
             market_info_spec(subagent_model),
             market_status_spec(subagent_model),
             capture_controller_spec(subagent_model),
+            market_quotes_spec(subagent_model),
         ],
         name=AGENT_NAME,
         permissions=[FILESYSTEM_DENY_ALL],

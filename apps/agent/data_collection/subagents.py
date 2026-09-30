@@ -1,4 +1,4 @@
-"""Subagent specs: market info + status snapshots (isolated)."""
+"""Subagent specs: market snapshots + capture control (isolated)."""
 
 from __future__ import annotations
 
@@ -29,10 +29,17 @@ from .market_tools import (
     get_options_smartlist,
     get_pcr,
 )
+from .quote_tools import (
+    get_full_quotes,
+    get_ltp_quotes,
+    get_ohlc_quotes,
+    get_option_greeks,
+)
 
 MARKET_INFO_NAME = "market_information"
 MARKET_STATUS_NAME = "market_status"
 CAPTURE_CONTROLLER_NAME = "capture_controller"
+MARKET_QUOTES_NAME = "market_quotes"
 
 # Core rules every isolated subagent carries (they cannot see the parent
 # prompt, so the essentials are duplicated here in compact form).
@@ -132,6 +139,40 @@ Rules:
             get_exchange_status,
             get_market_timings,
             get_market_holidays,
+        ],
+    }
+    if model is not None:
+        spec["model"] = model
+    return cast(SubAgent, spec)
+
+
+def market_quotes_spec(model: Any = None) -> SubAgent:
+    # cast: installed stubs lag the runtime TypedDict (which has "mode").
+    spec: dict = {
+        "name": MARKET_QUOTES_NAME,
+        "description": (
+            "Reads V3 market quotes: full quotes, OHLC, LTP, and option "
+            "Greeks for one or many instrument keys. Delegate whenever "
+            "current prices or Greeks are needed."
+        ),
+        "system_prompt": """\
+You read V3 market quotes through the quote tools.
+Rules:
+1. instrument_keys takes comma-separated canonical keys (up to 500;
+   50 for Greeks).
+2. get_ohlc_quotes interval is optional ("1d"|"I1"|"I30").
+3. Report values verbatim with their timestamps. Greeks may come back
+   empty outside Plus/session — report that as-is, never fabricate.
+4. Snapshots only, never persisted. Never present them as trade
+   recommendations.
+""" + CORE_RULES,
+        "mode": "isolated",
+        "middleware": [filesystem_locked_middleware()],
+        "tools": [
+            get_full_quotes,
+            get_ohlc_quotes,
+            get_ltp_quotes,
+            get_option_greeks,
         ],
     }
     if model is not None:

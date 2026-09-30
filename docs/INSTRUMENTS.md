@@ -27,14 +27,22 @@ All endpoint shapes come from the official Upstox documentation
 | `GET /market/pcr` | `GET /v2/market/pcr?...&bucket_interval=` | put-call ratio, spot, intraday insights |
 
 ## Market status, timings & holidays
-
 | Our endpoint | Upstox API | Notes |
 |---|---|---|
 | `GET /market/status?exchange=` | `GET /v2/market/status/{EXCHANGE}` | live status (`PRE_OPEN_START`, `NORMAL_OPEN`, …), `last_updated`; verified live: NSE `PRE_OPEN_START` at 08:5x IST |
 | `GET /market/timings?date=` | `GET /v2/market/timings/{YYYY-MM-DD}` | per-exchange `start_time`/`end_time` (epoch ms) |
 | `GET /market/holidays` | `GET /v2/market/holidays[/{YYYY-MM-DD}]` | `date`, `description`, `holiday_type`, `closed_exchanges`; verified live: 2026-10-02 Gandhi Jayanti `TRADING_HOLIDAY`; use for gap analysis |
 
-Discovery only — nothing is stored.
+## Market quotes V3 (full / OHLC / LTP / Greeks)
+
+| Our endpoint | Upstox API | Notes |
+|---|---|---|
+| `GET /market/quotes?instrument_key=` | `GET /v3/market-quote/quotes?instrument_key=` | full quote: OHLC, depth, OI, circuits, year high/low, CAS; up to 500 keys; verified live (Nifty 22727.65) |
+| `GET /market/quotes/ohlc?instrument_key=&interval=` | `GET /v3/market-quote/ohlc?...&interval=` | `interval` 1d/I1/I30; `prev_ohlc` + `live_ohlc`; verified live |
+| `GET /market/quotes/ltp?instrument_key=` | `GET /v3/market-quote/ltp?instrument_key=` | `last_price`, `ltq`, `volume`, `cp`; verified live (22733.1) |
+| `GET /market/quotes/greeks?instrument_key=` | `GET /v3/market-quote/option-greek?instrument_key=` | IV/delta/theta/gamma/vega/OI; up to 50 keys; upstream returned `{}` for tested contracts (Plus/session-gated) — passed through as-is |
+
+`instrument_key` accepts comma-separated keys. Discovery only — nothing is stored.
 
 `expiry` accepts a date or keyword; `date` is `YYYY-MM-DD`; `interval` is
 days, `bucket_interval` minutes. Discovery only — nothing is stored.

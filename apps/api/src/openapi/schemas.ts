@@ -299,3 +299,18 @@ export const MarketHolidaysQuerySchema = z.object({
     .optional()
     .openapi({ example: '2026-11-05' }),
 });
+
+export const QuotesQuerySchema = z.object({
+  // Comma-separated instrument_key values (up to 500; 50 for Greeks).
+  instrument_key: z.string().min(1).max(8000).openapi({
+    example: 'NSE_INDEX|Nifty 50,NSE_FO|73985',
+  }),
+});
+
+export const OhlcQuotesQuerySchema = QuotesQuerySchema.extend({
+  interval: z
+    .string()
+    .regex(/^(1d|I1|I30)$/)
+    .optional()
+    .openapi({ example: '1d' }),
+});

@@ -47,6 +47,11 @@ const envSchema = z.object({
     .trim()
     .url()
     .default('https://api.upstox.com/v2'),
+  UPSTOX_QUOTE_BASE_URL: z
+    .string()
+    .trim()
+    .url()
+    .default('https://api.upstox.com/v3'),
   HISTORICAL_SCHEMA_VERSION: z
     .string()
     .trim()

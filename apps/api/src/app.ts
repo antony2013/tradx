@@ -7,12 +7,14 @@ import type { HistoricalClient } from './historical/types';
 import type { ExpiriesClient } from './instruments/upstox-expiries';
 import type { InstrumentSearchClient } from './instruments/upstox-search';
 import type { MarketClient } from './instruments/upstox-market';
+import type { QuoteClient } from './instruments/upstox-quotes';
 import { handleError } from './lib/errors';
 import type { Logger } from './lib/logger';
 import { registerCaptureRoutes } from './routes/capture';
 import { registerHealthRoute } from './routes/health';
 import { registerHistoricalRoutes } from './routes/historical';
 import { registerInstrumentRoutes } from './routes/instruments';
+import { registerQuoteRoutes } from './routes/quotes';
 import { registerReadyRoute } from './routes/ready';
 
 export type AppDependencies = {
@@ -25,6 +27,7 @@ export type AppDependencies = {
   searchClient: InstrumentSearchClient;
   expiriesClient?: ExpiriesClient | null;
   marketClient?: MarketClient | null;
+  quoteClient?: QuoteClient | null;
 };
 
 export function createApp(dependencies: AppDependencies): OpenAPIHono {
@@ -38,6 +41,7 @@ export function createApp(dependencies: AppDependencies): OpenAPIHono {
     searchClient,
     expiriesClient = null,
     marketClient = null,
+    quoteClient = null,
   } = dependencies;
   const app = new OpenAPIHono();
 
@@ -63,6 +67,7 @@ export function createApp(dependencies: AppDependencies): OpenAPIHono {
     market: marketClient,
   });
   registerInstrumentRoutes(app, { search: searchClient, expiries: expiriesClient, market: marketClient });
+  registerQuoteRoutes(app, () => quoteClient);
   app.doc('/openapi.json', {
     openapi: '3.0.0',
     info: {

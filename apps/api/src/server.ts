@@ -9,6 +9,7 @@ import { runMigrations } from './db/migrate';
 import { UpstoxHistoricalClient } from './historical/upstox-client';
 import { UpstoxExpiriesClient } from './instruments/upstox-expiries';
 import { UpstoxMarketClient } from './instruments/upstox-market';
+import { UpstoxQuoteClient } from './instruments/upstox-quotes';
 import { UpstoxSearchClient } from './instruments/upstox-search';
 import { createLogger } from './lib/logger';
 
@@ -132,6 +133,14 @@ export const app = createApp({
   marketClient: new UpstoxMarketClient(
     {
       baseUrl: 'https://api.upstox.com/v2',
+      accessToken: config.UPSTOX_ACCESS_TOKEN ?? '',
+      requestTimeoutMs: config.requestTimeoutMs,
+    },
+    logger,
+  ),
+  quoteClient: new UpstoxQuoteClient(
+    {
+      baseUrl: config.UPSTOX_QUOTE_BASE_URL,
       accessToken: config.UPSTOX_ACCESS_TOKEN ?? '',
       requestTimeoutMs: config.requestTimeoutMs,
     },

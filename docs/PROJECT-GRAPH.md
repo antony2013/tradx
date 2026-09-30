@@ -27,8 +27,8 @@ flowchart TB
         T[(9 tables)]
     end
     subgraph AG[Python — apps/agent]
-        MAIN[Data Collection Agent<br/>0 direct tools, delegates only]
-        SUBS[5 isolated subagents]
+        MAIN[Data Collection Agent<br/>direct collection tools]
+        SUBS[3 isolated snapshot/control subagents]
     end
     WS --> CAP --> T
     HIST --> HACQ --> T

@@ -13,7 +13,11 @@ from .expiry_tools import (
     fetch_expired_option_contracts,
     fetch_expiries,
 )
-from .history_tools import acquire_dataset
+from .history_tools import (
+    acquire_dataset,
+    fetch_historical,
+    validate_dataset,
+)
 from .prompt import SYSTEM_PROMPT
 from .search_tools import fetch_option_contracts, search_instruments
 from .subagents import (
@@ -80,6 +84,8 @@ def build_data_collection_agent(model: Any):  # type: ignore[no-untyped-def]
             fetch_expired_option_contracts,
             fetch_expired_future_contracts,
             acquire_dataset,
+            fetch_historical,
+            validate_dataset,
         ],
         system_prompt=SYSTEM_PROMPT,
         # Locked fs middleware REPLACES the default by name: only read_file

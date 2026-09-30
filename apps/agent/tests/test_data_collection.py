@@ -644,6 +644,8 @@ def test_main_agent_collects_in_bounded_calls_without_fs_tools(monkeypatch) -> N
         "fetch_expired_option_contracts",
         "fetch_expired_future_contracts",
         "acquire_dataset",
+        "fetch_historical",
+        "validate_dataset",
         "read_file",
         "task",
     }, bound_names

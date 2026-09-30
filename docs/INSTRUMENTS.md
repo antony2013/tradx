@@ -50,8 +50,8 @@ days, `bucket_interval` minutes. Discovery only — nothing is stored.
 > `YYYY-MM-DD` date for search.
 
 Typical F&O history chain (ref §9.2): underlying search → expiries →
-expired contracts → expired candles (`POST /historical/datasets` does not
-take expired keys today — active keys only).
+expired contracts → expired candles via `POST /historical/datasets`
+(validated pipeline; date-suffixed keys route to expired storage).
 
 ## Instrument keys
 

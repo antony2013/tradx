@@ -755,6 +755,107 @@ def test_quote_tools_forward(monkeypatch) -> None:  # type: ignore[no-untyped-de
     assert out["data"] == {"NSE_INDEX|Nifty 50": {}}
 
 
+def test_task_delegation_isolated(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Agent→subagent communication contract (no network, no real model).
+
+    A market-status question must: reach market_status via task with a
+    description; run the subagent on ONLY that description (parent
+    conversation absent); return only the subagent's last text to the
+    parent (tool JSON stays inside the subagent).
+    """
+    import asyncio
+    import sys
+
+    sys.path.insert(0, ".")
+    from langchain_core.language_models.fake_chat_models import (
+        GenericFakeChatModel,
+    )
+    from langchain_core.messages import AIMessage
+
+    from data_collection.agent import build_data_collection_agent
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        return _fake_ok(
+            {"data": {"exchange": "NSE", "status": "NORMAL_OPEN"}}
+        )(request)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    seen_messages: list = []
+
+    class SpyFakeModel(GenericFakeChatModel):
+        def bind_tools(self, tools, **kwargs):  # type: ignore[no-untyped-def]
+            return self
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # type: ignore[no-untyped-def]
+            seen_messages.append(
+                [(type(m).__name__, str(m.content)) for m in messages]
+            )
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    script = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "task",
+                    "args": {
+                        "description": "What is the current NSE exchange status?",
+                        "subagent_type": "market_status",
+                    },
+                    "id": "call_1",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "get_exchange_status",
+                    "args": {"exchange": "NSE"},
+                    "id": "call_2",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        AIMessage(content="NSE is NORMAL_OPEN."),
+        AIMessage(content="NSE status: NORMAL_OPEN (reported)."),
+    ]
+    agent = build_data_collection_agent(SpyFakeModel(messages=iter(script)))
+    result = asyncio.run(
+        agent.ainvoke(
+            {"messages": [{"role": "user", "content": "Is NSE open right now?"}]}
+        )
+    )
+
+    # Four model calls: main → subagent → subagent → main.
+    assert len(seen_messages) == 4
+    # The subagent's first call sees ONLY the task description: full
+    # isolation from the parent conversation.
+    sub_first = seen_messages[1]
+    humans = [c for t, c in sub_first if t == "HumanMessage"]
+    assert humans == ["What is the current NSE exchange status?"]
+    assert not any(
+        "Is NSE open right now?" in c for _, c in sub_first
+    )
+    assert any(t == "SystemMessage" for t, _ in sub_first)
+    # The parent gets back only the subagent's last text — never the raw
+    # tool JSON.
+    tool_texts = [
+        str(m.content)
+        for m in result.get("messages", [])
+        if type(m).__name__ == "ToolMessage"
+    ]
+    assert tool_texts == ["NSE is NORMAL_OPEN."]
+    invoked = [
+        call.get("name")
+        for m in result.get("messages", [])
+        for call in getattr(m, "tool_calls", []) or []
+    ]
+    assert invoked == ["task"]
+
+
 def test_tools_return_errors_not_raise(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     import sys
     import urllib.error

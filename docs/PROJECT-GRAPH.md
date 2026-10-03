@@ -119,7 +119,7 @@ resolves through `settings.py`.
 | `historical_datasets`, `historical_chunks`, `historical_raw_responses`, `historical_candles` | historical/service.ts |
 | `validation_reports` | historical/validation.ts |
 
-## 6. Tests — 138 API (bun + vitest, 21 files) + 23 agent (pytest)
+## 6. Tests — 141 API (bun + vitest, 21 files) + 24 agent (pytest)
 
 API: capture (protobuf incl. market-info map regression, batch, queue,
 store, service, subscriptions, manual start/stop lifecycle) · historical

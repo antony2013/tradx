@@ -46,5 +46,8 @@ a new `source_connection_id`; lineage is
 
 `data/capture/YYYY-MM-DD/raw.sqlite` (session date in `Asia/Kolkata`;
 MVP session = weekday 09:00–15:45 IST, no holiday calendar yet).
+Session files carry capture tables only (`raw_batches`,
+`raw_market_messages`, `capture_errors` via `drizzle-capture/`);
+historical tables live in `research.db` via `drizzle/`.
 `PRAGMA journal_mode=WAL` + `synchronous=NORMAL`: normal crash recovery
 works; very recent WAL transactions may be lost on OS/power failure.

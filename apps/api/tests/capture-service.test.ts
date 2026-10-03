@@ -61,7 +61,7 @@ function createFixture(
   const store = new CaptureStore(
     directory,
     'capture',
-    join(projectRoot, 'drizzle'),
+    join(projectRoot, 'drizzle-capture'),
   );
   const source = new FakeCaptureSource('test-connection-1');
   const service = new RawCaptureService({

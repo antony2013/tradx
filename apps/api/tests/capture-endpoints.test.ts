@@ -88,7 +88,7 @@ function createFixture(withCapture: boolean): Fixture {
   let service: RawCaptureService | undefined;
   let source: FakeSubscribableSource | undefined;
   if (withCapture) {
-    store = new CaptureStore(directory, 'capture', join(projectRoot, 'drizzle'));
+    store = new CaptureStore(directory, 'capture', join(projectRoot, 'drizzle-capture'));
     service = new RawCaptureService({
       config: {
         enabled: true,

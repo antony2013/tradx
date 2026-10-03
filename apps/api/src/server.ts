@@ -21,7 +21,9 @@ const logger = createLogger(config.NODE_ENV);
 const captureStore = new CaptureStore(
   config.projectRoot,
   config.CAPTURE_ROOT_PATH,
-  resolve(config.projectRoot, 'drizzle'),
+  // Session files carry capture tables ONLY (see drizzle-capture/);
+  // historical tables live in research.db via drizzle/.
+  resolve(config.projectRoot, 'drizzle-capture'),
 );
 
 function parseInstrumentKeys(raw: string | undefined): string[] {

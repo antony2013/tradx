@@ -17,7 +17,7 @@ function createStore(): CaptureStore {
   store = new CaptureStore(
     directory,
     'capture',
-    join(projectRoot, 'drizzle'),
+    join(projectRoot, 'drizzle-capture'),
   );
   return store;
 }
@@ -51,6 +51,36 @@ function sessionClient() {
 }
 
 describe('capture store', () => {
+  it('creates session files with capture tables only (no historical schema)', () => {
+    const capture = createStore();
+    capture.writeBatch(batch({ 'NSE_EQ|A': { ltpc: { ltp: 1 } } }, 1));
+
+    const db = sessionClient();
+    try {
+      const tables = db.client
+        .query(
+          "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+        )
+        .all() as Array<{ name: string }>;
+      const names = tables.map((t) => t.name);
+      expect(names).toContain('raw_batches');
+      expect(names).toContain('raw_market_messages');
+      expect(names).toContain('capture_errors');
+      for (const stray of [
+        'historical_datasets',
+        'historical_chunks',
+        'historical_raw_responses',
+        'historical_candles',
+        'validation_reports',
+        'database_probe',
+      ]) {
+        expect(names).not.toContain(stray);
+      }
+    } finally {
+      db.client.close();
+    }
+  });
+
   it('persists one batch row and N instrument rows', () => {
     const capture = createStore();
     const result = capture.writeBatch(

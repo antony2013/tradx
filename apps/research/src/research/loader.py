@@ -94,16 +94,23 @@ def load_dataset(db_path: str, dataset_id: str) -> pd.DataFrame:
         raise InvalidDatasetError(f"{dataset_id}: VALID but zero candles")
 
     step = bar_ms(unit, interval)
+    # Structural grid check (NOT a completeness check — the VALID verdict
+    # owns completeness, including weekends and holidays). Intraday bars
+    # must sit exactly on the bar grid; daily bars must be day-aligned
+    # multiples (weekends/holidays legitimately skip days). Anything else
+    # (duplicates, backwards, off-grid stamps) fails loudly.
+    grid = 86_400_000 if unit == "days" else step
     stamps = [r[0] for r in rows]
     for prev, cur in zip(stamps, stamps[1:]):
-        if cur <= prev:
+        delta = cur - prev
+        if delta <= 0:
             raise InvalidDatasetError(
                 f"{dataset_id}: non-monotonic timestamps at {cur}"
             )
-        if cur - prev != step:
+        if delta % grid != 0:
             raise InvalidDatasetError(
-                f"{dataset_id}: non-uniform spacing {cur - prev}ms"
-                f" after {prev}, expected {step}ms"
+                f"{dataset_id}: off-grid spacing {delta}ms after {prev},"
+                f" expected a multiple of {grid}ms"
             )
 
     frame = pd.DataFrame(

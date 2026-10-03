@@ -52,7 +52,9 @@ def _make_db(path, *, verdict="VALID", schema="upstox-v3-candles-1",
         (base + 2 * step, 101.5, 103.0, 101.0, 102.5, 1100.0, None),
     ]
     if candles == "gap":
-        rows = [rows[0], rows[2]]
+        # Weekend-style skip is legal (multiples of the grid); an off-grid
+        # stamp is not.
+        rows = [rows[0], (rows[2][0] + 30_000,) + rows[2][1:]]
     elif candles == "dup":
         rows = [rows[0], rows[0], rows[2]]
     elif candles == "empty":
@@ -110,12 +112,61 @@ def test_rejects_schema_mismatch_and_empty(tmp_path):
 def test_rejects_gap_and_duplicate(tmp_path):
     db = tmp_path / "t.db"
     _make_db(str(db), candles="gap")
-    with pytest.raises(InvalidDatasetError, match="non-uniform"):
+    with pytest.raises(InvalidDatasetError, match="off-grid"):
         load_dataset(str(db), VALID_ID)
     db2 = tmp_path / "t2.db"
     _make_db(str(db2), candles="dup")
     with pytest.raises(InvalidDatasetError, match="non-monotonic"):
         load_dataset(str(db2), VALID_ID)
+
+
+def test_accepts_multiday_skip_for_daily(tmp_path):
+    # Tue 2026-09-15 then Fri 2026-09-18: 3-day spacing is grid-legal
+    # (e.g. a mid-week holiday gap). Completeness belongs to the VALID
+    # verdict, not the structural grid check.
+    db = tmp_path / "t.db"
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "CREATE TABLE historical_datasets (dataset_id TEXT PRIMARY KEY,"
+        " instrument_key TEXT, unit TEXT, interval INTEGER, source TEXT,"
+        " schema_version TEXT,"
+        " requested_from TEXT, requested_to TEXT, status TEXT, chunks_total INT,"
+        " chunks_completed INT, chunks_failed INT, record_count INT,"
+        " created_at INT, updated_at INT)"
+    )
+    con.execute(
+        "CREATE TABLE historical_candles (dataset_id TEXT, timestamp INT,"
+        " open REAL, high REAL, low REAL, close REAL, volume REAL,"
+        " open_interest REAL, unit TEXT, interval INT)"
+    )
+    con.execute(
+        "CREATE TABLE validation_reports (dataset_id TEXT PRIMARY KEY,"
+        " verdict TEXT, candle_count INT, expected_count INT,"
+        " completeness REAL, details TEXT, schema_version TEXT,"
+        " created_at INT, updated_at INT)"
+    )
+    con.execute(
+        "INSERT INTO historical_datasets VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (VALID_ID, "NSE_INDEX|Nifty 50", "days", 1, "upstox",
+         "upstox-v3-candles-1", "2026-09-15", "2026-09-18", "COMPLETE",
+         1, 1, 0, 2, 0, 0),
+    )
+    con.execute(
+        "INSERT INTO validation_reports VALUES (?,?,?,?,?,?,?,?,?)",
+        (VALID_ID, "VALID", 2, 2, 1.0, "{}", "integrity-report-1", 0, 0),
+    )
+    tue = 1789410600000  # Tue 2026-09-15 00:00 UTC
+    fri = tue + 3 * 86_400_000  # Fri 2026-09-18
+    for ts in (tue, fri):
+        con.execute(
+            "INSERT INTO historical_candles VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (VALID_ID, ts, 100.0, 101.0, 99.0, 100.5, 1000.0, None,
+             "days", 1),
+        )
+    con.commit()
+    con.close()
+    frame = load_dataset(str(db), VALID_ID)
+    assert len(frame) == 2
 
 
 def test_bar_ms_units():

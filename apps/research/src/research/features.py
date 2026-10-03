@@ -5,17 +5,24 @@ Conventions (leak discipline):
   shift are past-inclusive by default; never use future data).
 - Session-reset indicators group by the IST calendar date of bar_start.
 - Undefined values are NaN (zero-volume VWAP, short warmup), never
-  fabricated. Drop-count logging lives with the matrix caller, not here.
+  fabricated. Drop counts are logged (stdlib logging) wherever a rule
+  forces NaN; matrix assembly counts them again.
 - Required columns are checked explicitly; a missing column raises
   InvalidDatasetError (programmer error, fail loudly).
+- Anything needing futures, VIX, a PE pair, or the contract manifest
+  raises MissingDataError: those inputs do not exist yet.
 """
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
-from .errors import InvalidDatasetError
+from .errors import InvalidDatasetError, MissingDataError
+
+logger = logging.getLogger(__name__)
 
 OHLCV = ("open", "high", "low", "close", "volume")
 
@@ -117,3 +124,103 @@ UNDERLYING_FEATURES = {
     "sin_minute": sin_minute_of_day,
     "cos_minute": cos_minute_of_day,
 }
+
+
+def oi_change(frame: pd.DataFrame) -> pd.Series:
+    """oi_t - oi_{t-1}. Null OI yields NaN (never filled)."""
+    _require(frame, "open_interest")
+    out = frame["open_interest"] - frame["open_interest"].shift(1)
+    return pd.Series(out, index=frame.index, name="oi_change")
+
+
+def volume_zscore(frame: pd.DataFrame, window: int = 20) -> pd.Series:
+    """(volume - rolling mean) / rolling std, past bars only.
+
+    Zero-volume bars are set to NaN and counted in the log: a trade that
+    did not happen carries no volume signal.
+    """
+    _require(frame, "volume")
+    if window < 2:
+        raise InvalidDatasetError(f"window must be >= 2, got {window}")
+    mean = frame["volume"].rolling(window).mean()
+    std = frame["volume"].rolling(window).std(ddof=1)
+    out = (frame["volume"] - mean) / std.replace(0.0, np.nan)
+    zero = frame["volume"] == 0
+    n_zero = int(zero.sum())
+    if n_zero:
+        logger.info("volume_zscore: %d zero-volume bars set to NaN", n_zero)
+        out = out.mask(zero)
+    return pd.Series(out, index=frame.index, name=f"volume_zscore_{window}")
+
+
+SINGLE_OPTION_FEATURES = {
+    "oi_change": oi_change,
+    "volume_zscore_20": volume_zscore,
+}
+
+
+def _stub(name: str, need: str):
+    raise MissingDataError(
+        f"{name} needs {need}, which does not exist yet;"
+        " acquire it first (separate task)"
+    )
+
+
+def moneyness(frame: pd.DataFrame) -> pd.Series:
+    """Strike/forward moneyness. Needs futures closes + manifest."""
+    _stub("moneyness", "futures closes and the contract manifest")
+
+
+def option_iv(frame: pd.DataFrame) -> pd.Series:
+    """Black-76 IV. Needs futures closes (forward) + manifest (T)."""
+    _stub("option_iv", "futures closes and the contract manifest")
+
+
+def iv_change(frame: pd.DataFrame) -> pd.Series:
+    """IV change. Needs option_iv."""
+    _stub("iv_change", "option_iv")
+
+
+def option_delta(frame: pd.DataFrame) -> pd.Series:
+    """Black-76 delta. Needs futures closes + manifest."""
+    _stub("option_delta", "futures closes and the contract manifest")
+
+
+def option_gamma(frame: pd.DataFrame) -> pd.Series:
+    """Black-76 gamma. Needs futures closes + manifest."""
+    _stub("option_gamma", "futures closes and the contract manifest")
+
+
+def option_theta(frame: pd.DataFrame) -> pd.Series:
+    """Black-76 theta. Needs futures closes + manifest."""
+    _stub("option_theta", "futures closes and the contract manifest")
+
+
+def option_vega(frame: pd.DataFrame) -> pd.Series:
+    """Black-76 vega. Needs futures closes + manifest."""
+    _stub("option_vega", "futures closes and the contract manifest")
+
+
+def dte(frame: pd.DataFrame) -> pd.Series:
+    """Days to expiry. Needs the contract manifest."""
+    _stub("dte", "the contract manifest")
+
+
+def expiry_day_flag(frame: pd.DataFrame) -> pd.Series:
+    """1 on expiry day, else 0. Needs the contract manifest."""
+    _stub("expiry_day_flag", "the contract manifest")
+
+
+def ce_pe_iv_skew(frame: pd.DataFrame) -> pd.Series:
+    """Same-strike CE minus PE IV. Needs a paired PE dataset + manifest."""
+    _stub("ce_pe_iv_skew", "a paired PE dataset and the contract manifest")
+
+
+def iv_minus_realized_vol(frame: pd.DataFrame) -> pd.Series:
+    """IV minus realized vol. Needs futures closes + manifest."""
+    _stub("iv_minus_realized_vol", "futures closes and the contract manifest")
+
+
+def iv_vix_ratio(frame: pd.DataFrame) -> pd.Series:
+    """IV / VIX. Needs a VIX dataset."""
+    _stub("iv_vix_ratio", "a VIX dataset")

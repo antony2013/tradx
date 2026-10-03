@@ -17,6 +17,7 @@ type SentFrame = { guid: string; method: string; data: unknown };
 
 class FakeSocket {
   static instances: FakeSocket[] = [];
+  static openBehavior: 'auto' | 'never' = 'auto';
   sent: Uint8Array[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
@@ -26,7 +27,9 @@ class FakeSocket {
 
   constructor(public url: string) {
     FakeSocket.instances.push(this);
-    queueMicrotask(() => this.onopen?.());
+    if (FakeSocket.openBehavior === 'auto') {
+      queueMicrotask(() => this.onopen?.());
+    }
   }
 
   send(data: Uint8Array): void {
@@ -61,6 +64,7 @@ afterEach(() => {
   globalThis.WebSocket = realWebSocket;
   globalThis.fetch = realFetch;
   FakeSocket.instances = [];
+  FakeSocket.openBehavior = 'auto';
 });
 
 describe('instrument key validation', () => {
@@ -162,6 +166,51 @@ describe('upstox source subscriptions', () => {
     expect(latest?.data).toMatchObject({
       instrumentKeys: ['NSE_FO|1', 'NSE_FO|2'],
     });
+    await source.stop();
+  });
+
+  it('keeps a healthy connection past the connect timeout', async () => {
+    stubNetwork('wss://test/feed');
+    const source = new UpstoxMarketFeedSource({
+      authorizeUrl: 'https://x/authorize',
+      accessToken: 't',
+      instrumentKeys: ['NSE_FO|1'],
+      feedMode: 'full_d30',
+      reconnectMinMs: 1,
+      reconnectMaxMs: 5,
+      connectTimeoutMs: 30,
+    });
+
+    await source.start(callbacks());
+    // onopen fires on microtask; then outlive the timeout in silence.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(FakeSocket.instances).toHaveLength(1);
+    expect((FakeSocket.instances[0] as FakeSocket).closed).toBe(false);
+    await source.stop();
+  });
+
+  it('recycles a socket that never opens', async () => {
+    FakeSocket.openBehavior = 'never';
+    stubNetwork('wss://test/feed');
+    const source = new UpstoxMarketFeedSource({
+      authorizeUrl: 'https://x/authorize',
+      accessToken: 't',
+      instrumentKeys: ['NSE_FO|1'],
+      feedMode: 'ltpc',
+      reconnectMinMs: 1,
+      reconnectMaxMs: 5,
+      connectTimeoutMs: 30,
+    });
+
+    await source.start(callbacks());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(FakeSocket.instances).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    // Connect timeout fired: first socket closed, reconnect attempted.
+    expect((FakeSocket.instances[0] as FakeSocket).closed).toBe(true);
+    expect(FakeSocket.instances.length).toBeGreaterThanOrEqual(2);
     await source.stop();
   });
 });

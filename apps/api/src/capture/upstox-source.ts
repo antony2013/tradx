@@ -15,6 +15,8 @@ export type UpstoxSourceConfig = {
   feedMode: FeedMode;
   reconnectMinMs: number;
   reconnectMaxMs: number;
+  /** Connect-timeout guard in ms (default 15000). */
+  connectTimeoutMs?: number;
 };
 
 type AuthorizeResponse = {
@@ -269,6 +271,10 @@ export class UpstoxMarketFeedSource
       };
 
       // Guard: never hang the reconnect loop on a socket that stays silent.
+      // Cleared on open: a live socket must NOT be recycled by the
+      // connect timeout (that bug reconnected every 15s forever).
+      // Pre-market silence is normal, so there is deliberately no idle
+      // timer — a dead socket surfaces via onclose/onerror instead.
       const openTimer = setTimeout(() => {
         try {
           socket.close(1011, 'connect timeout');
@@ -276,9 +282,10 @@ export class UpstoxMarketFeedSource
           // ignore
         }
         settle();
-      }, 15000);
+      }, this.config.connectTimeoutMs ?? 15000);
 
       socket.onopen = () => {
+        clearTimeout(openTimer);
         callbacks.onConnected(connectionId);
         // Upstox v3 control frames are binary JSON: the JSON payload
         // must go out as a binary WS frame, not a text frame.

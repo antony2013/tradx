@@ -1,0 +1,18 @@
+[project]
+name = "tradex-research"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "py-vollib>=1.0.12",
+    "py-vollib-vectorized>=0.1.1",
+    "pyarrow>=25.0.1",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

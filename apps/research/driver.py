@@ -232,7 +232,16 @@ def write_summary(results: list, started: str) -> None:
     log(f"summary written: {SUMMARY_MD}")
 
 
-def main() -> int:
+def main(argv: list | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Bulk expired-option collector")
+    parser.add_argument(
+        "--canary-only",
+        action="store_true",
+        help="Run the canary gate only, then stop (no full range).",
+    )
+    args = parser.parse_args(argv)
     LOGS.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc).isoformat()
     days = trading_days()
@@ -243,6 +252,10 @@ def main() -> int:
     if not canary_gate(days, expiries):
         write_summary([], started)
         return 2
+    if args.canary_only:
+        log("CANARY-ONLY: stopping before full range.")
+        write_summary([], started)
+        return 0
 
     results: list = []
     consec_failed = 0

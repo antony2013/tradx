@@ -1,5 +1,7 @@
 """Expired collector tests: fully mocked HTTP + DB reads."""
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -97,6 +99,16 @@ def test_full_run_summary_and_parquet(monkeypatch, tmp_path):
     assert set(frame.columns) >= {"strike", "type", "expiry", "atm_strike",
                                   "offset", "oi", "dataset_id"}
     assert set(frame["offset"]) == {0}
+    meta = json.loads(
+        (tmp_path / "expired_options_2024-10-03.meta.json").read_text()
+    )
+    assert meta["summary"] == line
+    assert meta["failed"] == []
+    assert len(meta["skipped_combos"]) == 16  # 8 unmatched strikes x CE/PE
+    assert all(
+        c["strike"] % 50 == 0 and c["type"] in ("CE", "PE")
+        for c in meta["skipped_combos"]
+    )
 
 
 def test_retry_cap_never_fourth(monkeypatch, tmp_path):
@@ -153,6 +165,37 @@ def test_auth_error_prints_and_stops(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
     assert ec.main(["--date", "2024-10-03"]) == 0
     assert capsys.readouterr().out.strip() == "AUTH_ERROR"
+
+
+def test_acquire_backs_off_on_429(monkeypatch):
+    calls = {"n": 0, "sleeps": []}
+    responses = [
+        {"status": 429, "body": {"error": "slow"}},
+        {"status": 429, "body": {"error": "slow"}},
+        {"status": 200, "body": {"dataset_id": "d", "status": "COMPLETE"}},
+    ]
+
+    def fake_request(path, payload=None):
+        calls["n"] += 1
+        return responses[min(calls["n"] - 1, 2)]
+
+    monkeypatch.setattr(ec, "_post", fake_request)
+    monkeypatch.setattr("time.sleep", lambda s: calls["sleeps"].append(s))
+    out = ec.acquire("2024-10-03", "K", "1minute")
+    assert out["ok"] is True
+    assert calls["n"] == 3
+    assert calls["sleeps"] == [2, 4]
+
+
+def test_acquire_gives_up_after_429_limit(monkeypatch):
+    calls = {"sleeps": []}
+    monkeypatch.setattr(
+        ec, "_post", lambda path, payload=None: {"status": 429, "body": {}}
+    )
+    monkeypatch.setattr("time.sleep", lambda s: calls["sleeps"].append(s))
+    out = ec.acquire("2024-10-03", "K", "1minute")
+    assert out["ok"] is False
+    assert calls["sleeps"] == [2, 4, 8]
 
 
 def test_expiry_pick_and_grid_math():

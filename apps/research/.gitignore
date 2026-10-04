@@ -7,5 +7,7 @@ __pycache__/
 
 # Research artefacts (local only, never commit)
 data/
+reports/
+logs/
 *.parquet
 *.sqlite

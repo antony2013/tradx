@@ -94,15 +94,27 @@ def _read_candles(dataset_id: str) -> list:
 
 
 def acquire(date: str, key: str, interval: str) -> dict:
-    """POST a dataset acquisition. Returns (record, attempts_used=1)."""
-    res = _post(
-        "/historical/datasets",
-        {"instrumentKey": key, "from": date, "to": date,
-         "interval": interval, "source": "upstox"},
-    )
-    if res["status"] not in (200, 201):
-        return {"ok": False, "error": res["body"]}
-    return {"ok": True, "record": res["body"]}
+    """POST a dataset acquisition. Returns (record, attempts_used=1).
+
+    HTTP 429 (Upstox rate limit) backs off exponentially (2/4/8s, max 3
+    tries) before giving up; anything else fails fast for the caller loop.
+    """
+    import time as _time
+
+    delays = (2, 4, 8)
+    attempts = 0
+    while True:
+        res = _post(
+            "/historical/datasets",
+            {"instrumentKey": key, "from": date, "to": date,
+             "interval": interval, "source": "upstox"},
+        )
+        if res["status"] in (200, 201):
+            return {"ok": True, "record": res["body"]}
+        attempts += 1
+        if res["status"] != 429 or attempts > len(delays):
+            return {"ok": False, "error": res["body"]}
+        _time.sleep(delays[attempts - 1])
 
 
 def pick_expiry(dates: list, day: str) -> str:
@@ -166,12 +178,14 @@ def run(date: str, resume: bool = False) -> str:
     # 4. Per (strike, type).
     stored: list = []
     skipped = 0
+    skipped_combos: list = []
     failed: list = []
     for strike in strikes:
         for opt_type in ("CE", "PE"):
             key = key_of.get((strike, opt_type))
             if key is None:
                 skipped += 1
+                skipped_combos.append({"strike": strike, "type": opt_type})
                 continue
             attempts = 0
             done = False
@@ -222,12 +236,26 @@ def run(date: str, resume: bool = False) -> str:
         frame.to_parquet(out_path, engine="pyarrow", index=False)
 
     stored_n = len({(s["strike"], s["type"]) for s in stored})
-    return (
+    line = (
         f"{date} | {expiry} | {atm} | {len(strikes)}"
         f" | {stored_n} | {skipped} | {len(failed)}"
         f" | short_series({short})"
         + (f" FAILED={','.join(failed)}" if failed else "")
     )
+    # Sidecar for the driver (resume + reporting). Overwritten per run;
+    # the summary line above stays the parsed contract.
+    meta = {
+        "date": date, "expiry": expiry, "atm": atm,
+        "strikes_tried": len(strikes), "stored": stored_n,
+        "skipped": skipped, "failed": failed,
+        "short_series": short, "skipped_combos": skipped_combos,
+        "summary": line,
+    }
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    with open(OUT_DIR / f"expired_options_{date}.meta.json", "w",
+              encoding="utf-8") as fh:
+        json.dump(meta, fh)
+    return line
 
 
 def main(argv: list | None = None) -> int:

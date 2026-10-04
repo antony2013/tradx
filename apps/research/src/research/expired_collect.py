@@ -148,26 +148,53 @@ def run(date: str, resume: bool = False) -> str:
         return f"NO_DATA_SPOT {date}"
     _, day_open, day_high, day_low, _, _, _ = spot_rows[0]
 
-    # 2. Nearest expiry >= D.
+    # 2. Nearest expiry >= D from the expired list. Past the last expired
+    # expiry (recent days), fall back to the ACTIVE chain: expiry_date=
+    # next_week returns the current trading week's contracts (verified live:
+    # 2026-10-06 chain). E is always read from a tool response, never
+    # computed from weekdays.
     exp = _get(f"/instruments/expiries?{urllib.parse.urlencode({'instrument_key': UNDERLYING})}")
     if exp["status"] != 200 or not isinstance(exp["body"].get("data"), list):
         return f"EXPIRY_ERROR {date} {exp['body']}"
-    expiry = pick_expiry(exp["body"]["data"], date)
+    expired_dates = [d for d in exp["body"]["data"] if isinstance(d, str)]
+    contracts: list = []
+    try:
+        expiry = pick_expiry(expired_dates, date)
+    except ValueError:
+        expiry = None
+    if expiry is not None:
+        con = _get(
+            "/instruments/expired-option-contracts?"
+            + urllib.parse.urlencode(
+                {"instrument_key": UNDERLYING, "expiry_date": expiry}
+            )
+        )
+        if con["status"] != 200 or not isinstance(con["body"].get("data"), list):
+            return f"CONTRACT_ERROR {date} {con['body']}"
+        contracts = con["body"]["data"]
+    else:
+        act = _get(
+            "/instruments/option-contracts?"
+            + urllib.parse.urlencode(
+                {"instrument_key": UNDERLYING, "expiry_date": "next_week"}
+            )
+        )
+        if act["status"] != 200 or not act["body"].get("data"):
+            return f"CONTRACT_ERROR {date} {act['body']}"
+        weeks = {r.get("expiry") for r in act["body"]["data"]}
+        if len(weeks) != 1:
+            return f"CONTRACT_ERROR {date} mixed expiries {sorted(map(str, weeks))}"
+        expiry = weeks.pop()
+        if not isinstance(expiry, str) or expiry < date:
+            return f"CONTRACT_ERROR {date} active week {expiry} does not cover D"
+        contracts = act["body"]["data"]
 
     # 3. Strike grid.
     atm, strikes = strike_grid(day_open, day_low, day_high)
 
-    # 3b. Contract map (strike, type) -> key.
-    con = _get(
-        "/instruments/expired-option-contracts?"
-        + urllib.parse.urlencode(
-            {"instrument_key": UNDERLYING, "expiry_date": expiry}
-        )
-    )
-    if con["status"] != 200 or not isinstance(con["body"].get("data"), list):
-        return f"CONTRACT_ERROR {date} {con['body']}"
+    # 3b. Contract map (strike, type) -> key, from the step-2 rows.
     key_of: dict = {}
-    for row in con["body"]["data"]:
+    for row in contracts:
         try:
             key_of[(int(row["strike_price"]), str(row["instrument_type"]))] = str(
                 row["instrument_key"]

@@ -91,6 +91,35 @@ def fetch_expiries() -> list:
     return [d for d in body.get("data", []) if isinstance(d, str)]
 
 
+def fetch_active_expiry() -> str | None:
+    """Current trading week's expiry, read from the active chain response.
+
+    Used only for days past the last expired expiry (the tail of the
+    range). Never computed from weekdays.
+    """
+    base = os.environ.get("TRADX_API_URL", "http://localhost:3000")
+    url = base + "/instruments/option-contracts?" + urllib.parse.urlencode(
+        {"instrument_key": "NSE_INDEX|Nifty 50", "expiry_date": "next_week"}
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            body = json.load(resp)
+    except OSError:
+        return None
+    weeks = {r.get("expiry") for r in body.get("data", []) if isinstance(r, dict)}
+    return weeks.pop() if len(weeks) == 1 and isinstance(next(iter(weeks)), str) else None
+
+
+def expiry_acceptable(day: str, expiry: str, expiries: list,
+                      active_expiry: str | None) -> bool:
+    """E must come from a tool: expired list, or the active chain."""
+    if expiry < day:
+        return False
+    if expiry in expiries:
+        return True
+    return active_expiry is not None and expiry == active_expiry
+
+
 def parse_summary_line(line: str) -> dict | None:
     """Parse a worker summary line. None if it is not a summary."""
     parts = [p.strip() for p in line.split("|")]
@@ -159,6 +188,8 @@ def already_done(day: str) -> bool:
 
 def canary_gate(days: list, expiries: list) -> bool:
     log(f"CANARY start: {CANARY}")
+    active_expiry = fetch_active_expiry()
+    log(f"CANARY active-week expiry: {active_expiry}")
     ok = True
     for day in CANARY:
         if day not in days:
@@ -177,7 +208,8 @@ def canary_gate(days: list, expiries: list) -> bool:
             "short==0": rec["short"] == 0,
             "skipped<=2": rec["skipped"] <= 2,
             "E>=D": rec["expiry"] >= day,
-            "E-from-expiries": rec["expiry"] in expiries,
+            "E-from-tool": expiry_acceptable(
+                day, rec["expiry"], expiries, active_expiry),
         }
         log(f"CANARY {day}: {checks}")
         if not all(checks.values()):

@@ -25,6 +25,15 @@ def test_parse_summary_line():
     assert driver.parse_summary_line("") is None
 
 
+def test_expiry_acceptable():
+    exp = ["2026-09-29"]
+    assert driver.expiry_acceptable("2026-09-29", "2026-09-29", exp, None) is True
+    assert driver.expiry_acceptable("2026-10-01", "2026-09-29", exp, None) is False
+    assert driver.expiry_acceptable("2026-10-01", "2026-10-06", exp, "2026-10-06") is True
+    assert driver.expiry_acceptable("2026-10-01", "2026-10-13", exp, "2026-10-06") is False
+    assert driver.expiry_acceptable("2026-10-01", "2026-10-06", exp, None) is False
+
+
 def test_already_done_needs_parquet_and_clean_meta(tmp_path, monkeypatch):
     monkeypatch.setattr(driver, "OUT_DIR", tmp_path)
     assert driver.already_done("2024-10-03") is False

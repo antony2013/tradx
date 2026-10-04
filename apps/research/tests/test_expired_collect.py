@@ -198,6 +198,53 @@ def test_acquire_gives_up_after_429_limit(monkeypatch):
     assert calls["sleeps"] == [2, 4, 8]
 
 
+def _active_chain(expiry="2026-10-06"):
+    return [
+        {"strike_price": 22600, "instrument_type": "CE",
+         "instrument_key": "NSE_FO|90001", "expiry": expiry},
+        {"strike_price": 22600, "instrument_type": "PE",
+         "instrument_key": "NSE_FO|90002", "expiry": expiry},
+    ]
+
+
+def _active_script(monkeypatch, tmp_path, chain):
+    s = Script()
+    s.post_impl = lambda path, p: {
+        "status": 200,
+        "body": {"dataset_id": f"ds-{p['instrumentKey']}",
+                 "status": "COMPLETE", "reused": False},
+    }
+
+    def get_impl(path):
+        if "expiries?" in path and "expired-option" not in path:
+            return {"status": 200, "body": {"data": ["2026-09-29"]}}
+        return {"status": 200, "body": {"data": chain}}
+
+    s.get_impl = get_impl
+    s.read_impl = lambda dsid: _spot_row(22700.0, 22750.0, 22650.0) if "Nifty" in dsid else _candles(375)
+    s.install(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    return s
+
+
+def test_active_fallback_for_recent_day(monkeypatch, tmp_path):
+    _active_script(monkeypatch, tmp_path, _active_chain())
+    line = ec.run("2026-10-01")
+    assert line.startswith("2026-10-01 | 2026-10-06 | ")
+    parts = [p.strip() for p in line.split("|")]
+    assert parts[4] == "2"  # stored CE+PE
+    assert "short_series(0)" in line
+
+
+def test_active_mixed_expiries_rejected(monkeypatch, tmp_path):
+    chain = _active_chain() + [
+        {"strike_price": 22700, "instrument_type": "CE",
+         "instrument_key": "NSE_FO|90003", "expiry": "2026-10-13"}
+    ]
+    _active_script(monkeypatch, tmp_path, chain)
+    assert ec.run("2026-10-01").startswith("CONTRACT_ERROR")
+
+
 def test_expiry_pick_and_grid_math():
     assert ec.pick_expiry(["2024-10-10", "2024-10-03"], "2024-10-03") == "2024-10-03"
     assert ec.pick_expiry(["2024-09-26", "2024-10-03"], "2024-10-03") == "2024-10-03"

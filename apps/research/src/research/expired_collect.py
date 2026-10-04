@@ -32,13 +32,11 @@ import urllib.request
 from pathlib import Path
 
 API_BASE = os.environ.get("TRADX_API_URL", "http://localhost:3000").rstrip("/")
-TRADX_DB_PATH = os.environ.get(
-    "TRADX_DB_PATH",
-    str(Path(__file__).resolve().parents[3] / "apps" / "api" / "data" / "research.db"),
-)
-OUT_DIR = (
-    Path(__file__).resolve().parents[2] / "data" / "expired_options"
-)
+from .config import DATA_DIR as _DATA_DIR
+from .config import TRADX_DB_PATH
+from .errors import MissingDataError
+
+OUT_DIR = Path(_DATA_DIR) / "expired_options"
 UNDERLYING = "NSE_INDEX|Nifty 50"
 MAX_ATTEMPTS = 3
 SHORT_SERIES_BARS = 350
@@ -83,7 +81,7 @@ def _post(path: str, payload: dict) -> dict:
 def _read_candles(dataset_id: str) -> list:
     db = Path(TRADX_DB_PATH)
     if not db.exists():
-        raise AuthError(f"tradx DB not found: {TRADX_DB_PATH}")
+        raise MissingDataError(f"tradx DB not found: {TRADX_DB_PATH}")
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
         return con.execute(
@@ -241,7 +239,7 @@ def main(argv: list | None = None) -> int:
         print(run(args.date, resume=args.resume))
     except AuthError:
         print("AUTH_ERROR")
-    except ValueError as exc:
+    except (ValueError, MissingDataError) as exc:
         print(f"INPUT_ERROR {exc}")
     return 0
 

@@ -25,6 +25,19 @@ def test_parse_summary_line():
     assert driver.parse_summary_line("") is None
 
 
+def test_parse_summary_line_with_failed_suffix():
+    # Regression: the FAILED=... suffix used to poison the short_series
+    # parse, downgrading real summaries to kind=other (no halt checks).
+    rec = driver.parse_summary_line(
+        "2025-05-16 | 2025-05-22 | 25050 | 8 | 0 | 0 | 16"
+        " | short_series(0) FAILED=24850CE,24850PE"
+    )
+    assert rec is not None
+    assert rec["stored"] == 0
+    assert rec["failed"] == 16
+    assert rec["short"] == 0
+
+
 def test_expiry_acceptable():
     exp = ["2026-09-29"]
     assert driver.expiry_acceptable("2026-09-29", "2026-09-29", exp, None) is True

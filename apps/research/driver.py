@@ -122,19 +122,22 @@ def expiry_acceptable(day: str, expiry: str, expiries: list,
 
 def parse_summary_line(line: str) -> dict | None:
     """Parse a worker summary line. None if it is not a summary."""
+    import re
+
     parts = [p.strip() for p in line.split("|")]
     if len(parts) < 8 or not parts[0][:4].isdigit():
         return None
     try:
+        short = int(re.search(r"short_series\((\d+)\)", parts[7]).group(1))  # type: ignore[union-attr]
         return {
             "date": parts[0],
             "expiry": parts[1],
             "stored": int(parts[4]),
             "skipped": int(parts[5]),
             "failed": int(parts[6]),
-            "short": int(parts[7].split("(")[1].rstrip(")")),
+            "short": short,
         }
-    except (IndexError, ValueError):
+    except (IndexError, ValueError, AttributeError):
         return None
 
 

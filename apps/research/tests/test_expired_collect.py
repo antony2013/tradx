@@ -1,0 +1,170 @@
+"""Expired collector tests: fully mocked HTTP + DB reads."""
+
+import pandas as pd
+import pytest
+
+from research import expired_collect as ec
+
+
+def _spot_row(o=25000.0, h=25100.0, low=24900.0):
+    return [(0, o, h, low, 25050.0, 1000.0, None)]
+
+
+def _chain():
+    return [
+        {"strike_price": 25000, "instrument_type": "CE",
+         "instrument_key": "NSE_FO|1|03-10-2024"},
+        {"strike_price": 25000, "instrument_type": "PE",
+         "instrument_key": "NSE_FO|2|03-10-2024"},
+    ]
+
+
+def _candles(n=375):
+    base = 1727927100000
+    return [(base + i * 60000, 1.0, 1.1, 0.9, 1.05, 10.0, 5.0)
+            for i in range(n)]
+
+
+class Script:
+    """Scripted _post/_get/_read_candles with call counts."""
+
+    def __init__(self):
+        self.posts = []
+        self.post_impl = None
+        self.get_impl = None
+        self.read_impl = None
+
+    def install(self, monkeypatch):
+        monkeypatch.setattr(ec, "_post", self._post)
+        monkeypatch.setattr(ec, "_get", self._get)
+        monkeypatch.setattr(ec, "_read_candles", self._read)
+
+    def _post(self, path, payload):
+        self.posts.append(payload)
+        return self.post_impl(path, payload)
+
+    def _get(self, path):
+        return self.get_impl(path)
+
+    def _read(self, dataset_id):
+        return self.read_impl(dataset_id)
+
+
+def _full_script(monkeypatch, candles_n=375):
+    s = Script()
+    s.post_impl = lambda path, p: {
+        "status": 200,
+        "body": {"dataset_id": f"ds-{p['instrumentKey']}-{p['interval']}",
+                 "status": "COMPLETE", "reused": False},
+    }
+    s.get_impl = lambda path: (
+        {"status": 200, "body": {"data": ["2024-10-03", "2024-10-10"]}}
+        if "expiries" in path
+        else {"status": 200, "body": {"data": _chain()}}
+    )
+    s.read_impl = lambda dsid: (
+        _spot_row() if "Nifty" in dsid else _candles(candles_n)
+    )
+    s.install(monkeypatch)
+    return s
+
+
+def test_no_data_spot(monkeypatch, tmp_path):
+    s = Script()
+    s.post_impl = lambda path, p: {
+        "status": 200,
+        "body": {"dataset_id": "ds-spot", "status": "COMPLETE"},
+    }
+    s.get_impl = lambda path: {"status": 200, "body": {"data": []}}
+    s.read_impl = lambda dsid: []
+    s.install(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    assert ec.run("2024-10-03") == "NO_DATA_SPOT 2024-10-03"
+
+
+def test_full_run_summary_and_parquet(monkeypatch, tmp_path):
+    _full_script(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    line = ec.run("2024-10-03")
+    # open=25000 -> atm 25000; low 24900 -> lo 24800; high 25100 -> hi 25200
+    # strikes: 24800..25200 step 50 = 9; only 25000 CE/PE have contracts
+    assert line.startswith("2024-10-03 | 2024-10-03 | 25000 | 9")
+    parts = [p.strip() for p in line.split("|")]
+    assert parts[4] == "2"  # stored CE+PE
+    assert "short_series(0)" in line
+    frame = pd.read_parquet(tmp_path / "expired_options_2024-10-03.parquet")
+    assert len(frame) == 750
+    assert set(frame.columns) >= {"strike", "type", "expiry", "atm_strike",
+                                  "offset", "oi", "dataset_id"}
+    assert set(frame["offset"]) == {0}
+
+
+def test_retry_cap_never_fourth(monkeypatch, tmp_path):
+    s = Script()
+    s.post_impl = lambda path, p: {
+        "status": 200,
+        "body": {"dataset_id": f"ds-{p['instrumentKey']}",
+                 "status": "COMPLETE", "reused": False},
+    }
+    s.get_impl = lambda path: (
+        {"status": 200, "body": {"data": ["2024-10-03"]}}
+        if "expiries" in path
+        else {"status": 200, "body": {"data": _chain()}}
+    )
+    # spot ok, everything else empty -> 3 attempts each, then FAILED
+    s.read_impl = lambda dsid: _spot_row() if "Nifty" in dsid else []
+    s.install(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    line = ec.run("2024-10-03")
+    ce_posts = [p for p in s.posts
+                if p.get("instrumentKey") == "NSE_FO|1|03-10-2024"]
+    pe_posts = [p for p in s.posts
+                if p.get("instrumentKey") == "NSE_FO|2|03-10-2024"]
+    assert len(ce_posts) == 3
+    assert len(pe_posts) == 3
+    assert "FAILED=25000CE,25000PE" in line
+
+
+def test_reused_complete_skips(monkeypatch, tmp_path):
+    s = Script()
+    s.post_impl = lambda path, p: {
+        "status": 200,
+        "body": {"dataset_id": "ds-x", "status": "COMPLETE", "reused": True},
+    }
+    s.get_impl = lambda path: (
+        {"status": 200, "body": {"data": ["2024-10-03"]}}
+        if "expiries" in path
+        else {"status": 200, "body": {"data": _chain()}}
+    )
+    s.read_impl = lambda dsid: _spot_row()
+    s.install(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    line = ec.run("2024-10-03")
+    parts = [p.strip() for p in line.split("|")]
+    assert parts[4] == "0"  # stored
+    assert parts[5] == "18"  # skipped: 8 unmatched strikes*2 + 2 reused
+
+
+def test_auth_error_prints_and_stops(monkeypatch, tmp_path, capsys):
+    def boom(method, path, payload=None):
+        raise ec.AuthError("HTTP 401")
+
+    monkeypatch.setattr(ec, "_request", boom)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    assert ec.main(["--date", "2024-10-03"]) == 0
+    assert capsys.readouterr().out.strip() == "AUTH_ERROR"
+
+
+def test_expiry_pick_and_grid_math():
+    assert ec.pick_expiry(["2024-10-10", "2024-10-03"], "2024-10-03") == "2024-10-03"
+    assert ec.pick_expiry(["2024-09-26", "2024-10-03"], "2024-10-03") == "2024-10-03"
+    try:
+        ec.pick_expiry(["2024-09-26"], "2024-10-03")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError")
+    atm, strikes = ec.strike_grid(25013.0, 24900.0, 25100.0)
+    assert atm == 25000
+    assert strikes[0] == 24800 and strikes[-1] == 25200
+    assert all(s % 50 == 0 for s in strikes)

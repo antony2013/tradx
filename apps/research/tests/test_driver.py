@@ -34,6 +34,21 @@ def test_expiry_acceptable():
     assert driver.expiry_acceptable("2026-10-01", "2026-10-06", exp, None) is False
 
 
+def test_verify_existing_reads_meta(tmp_path, monkeypatch):
+    monkeypatch.setattr(driver, "OUT_DIR", tmp_path)
+    meta = {
+        "expiry": "2024-10-03", "stored": 2, "skipped": 16, "failed": [],
+        "short_series": 0, "summary": "2024-10-03 | 2024-10-03 | 1 | 1 | 2 | 16 | 0 | short_series(0)",
+    }
+    (tmp_path / "expired_options_2024-10-03.meta.json").write_text(
+        json.dumps(meta)
+    )
+    rec = driver.verify_existing("2024-10-03", ["2024-10-03"], None)
+    assert rec["kind"] == "summary"
+    assert rec["failed"] == 0 and rec["short"] == 0
+    assert driver.verify_existing("2024-10-04", [], None)["kind"] == "unverified"
+
+
 def test_already_done_needs_parquet_and_clean_meta(tmp_path, monkeypatch):
     monkeypatch.setattr(driver, "OUT_DIR", tmp_path)
     assert driver.already_done("2024-10-03") is False

@@ -186,6 +186,28 @@ def already_done(day: str) -> bool:
         return False
 
 
+def verify_existing(day: str, expiries: list, active_expiry: str | None) -> dict:
+    """Re-check an ALREADY_COLLECTED day from its meta sidecar."""
+    try:
+        meta = json.loads(
+            (OUT_DIR / f"expired_options_{day}.meta.json").read_text(
+                encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"date": day, "kind": "unverified", "line": f"ALREADY but unreadable: {exc}"}
+    rec = {
+        "date": day,
+        "kind": "summary",
+        "expiry": meta.get("expiry", "?"),
+        "stored": meta.get("stored", -1),
+        "skipped": meta.get("skipped", 99),
+        "failed": len(meta.get("failed", ["?"])),
+        "short": meta.get("short_series", 99),
+        "line": meta.get("summary", "ALREADY_COLLECTED (meta)"),
+    }
+    return rec
+
+
 def canary_gate(days: list, expiries: list) -> bool:
     log(f"CANARY start: {CANARY}")
     active_expiry = fetch_active_expiry()
@@ -197,8 +219,12 @@ def canary_gate(days: list, expiries: list) -> bool:
             ok = False
             continue
         rec = run_day(day)
-        record(rec)
-        log(f"CANARY {day}: {rec.get('line')}")
+        if rec.get("line", "").startswith("ALREADY_COLLECTED"):
+            rec = verify_existing(day, expiries, active_expiry)
+            log(f"CANARY {day}: {rec.get('line')} (pre-collected, re-verified)")
+        else:
+            record(rec)
+            log(f"CANARY {day}: {rec.get('line')}")
         if rec.get("kind") != "summary":
             log(f"CANARY {day}: no summary -> FAIL")
             ok = False

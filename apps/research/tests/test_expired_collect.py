@@ -269,7 +269,7 @@ def test_empty_chain_retried_before_skip(monkeypatch, tmp_path):
     monkeypatch.setattr("time.sleep", lambda sec: calls["sleeps"].append(sec))
     line = ec.run("2024-10-03")
     assert calls["n"] == 3
-    assert calls["sleeps"] == [5, 5]
+    assert calls["sleeps"] == [5, 5, 2.0, 2.0]  # chain retries + pacing
     assert " | 2 | " in line  # 2 stored
 
 
@@ -289,6 +289,17 @@ def test_empty_chain_after_retries_fails_day(monkeypatch, tmp_path):
     monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
     monkeypatch.setattr("time.sleep", lambda sec: None)
     assert ec.run("2024-10-03") == "CONTRACT_EMPTY 2024-10-03 2024-10-03"
+
+
+def test_fetch_pacing_between_attempts(monkeypatch, tmp_path):
+    _full_script(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(ec, "FETCH_PACING_SEC", 0.5)
+    sleeps: list = []
+    monkeypatch.setattr("time.sleep", lambda s: sleeps.append(s))
+    ec.run("2024-10-03")
+    # pacing applies to instrument attempts only (spot acquire unpaced)
+    assert sleeps == [0.5, 0.5]
 
 
 def test_expiry_pick_and_grid_math():

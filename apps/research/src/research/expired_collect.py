@@ -26,6 +26,7 @@ import math
 import os
 import sqlite3
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -40,6 +41,10 @@ OUT_DIR = Path(_DATA_DIR) / "expired_options"
 UNDERLYING = "NSE_INDEX|Nifty 50"
 MAX_ATTEMPTS = 3
 SHORT_SERIES_BARS = 350
+# Seconds between instrument fetches inside one day. Expired Plus
+# endpoints throttle bursts (200-empty responses); pacing keeps the day
+# alive. Overridable for tests via WORKER_SLEEP_SEC.
+FETCH_PACING_SEC = float(os.environ.get("WORKER_SLEEP_SEC", "2.0"))
 
 
 class AuthError(Exception):
@@ -168,8 +173,6 @@ def run(date: str, resume: bool = False) -> str:
         # Still empty afterwards -> fail the DAY loudly (CONTRACT_EMPTY)
         # instead of silently skipping everything: a listed expiry always
         # has contracts, and skip-all would hide the outage.
-        import time as _time
-
         contracts = []
         for _ in range(3):
             con = _get(
@@ -185,7 +188,7 @@ def run(date: str, resume: bool = False) -> str:
             contracts = con["body"]["data"]
             if contracts:
                 break
-            _time.sleep(5)
+            time.sleep(5)
         if not contracts:
             return f"CONTRACT_EMPTY {date} {expiry}"
     else:
@@ -235,6 +238,8 @@ def run(date: str, resume: bool = False) -> str:
             while attempts < MAX_ATTEMPTS and not done:
                 attempts += 1
                 got = acquire(date, key, "1minute")
+                if FETCH_PACING_SEC > 0:
+                    time.sleep(FETCH_PACING_SEC)
                 if not got["ok"]:
                     continue
                 rec = got["record"]

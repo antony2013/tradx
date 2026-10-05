@@ -81,6 +81,17 @@ def trading_days() -> list:
     return sorted(d for d in ist if RANGE_FROM <= d <= today)
 
 
+def api_healthy() -> bool:
+    """Local API liveness gate. A dead server would burn every day with
+    unreachable retries, so check first and halt loudly instead."""
+    base = os.environ.get("TRADX_API_URL", "http://localhost:3000")
+    try:
+        with urllib.request.urlopen(base + "/health", timeout=10) as resp:
+            return resp.status == 200
+    except OSError:
+        return False
+
+
 def fetch_expiries() -> list:
     base = os.environ.get("TRADX_API_URL", "http://localhost:3000")
     url = base + "/instruments/expiries?" + urllib.parse.urlencode(
@@ -326,6 +337,10 @@ def main(argv: list | None = None) -> int:
         if already_done(day):
             log(f"SKIP {day}: parquet + failed=0")
             continue
+        if not api_healthy():
+            log("HALT: API unreachable, refusing to burn days on retries")
+            write_summary(results, started)
+            return 6
         rec = run_day(day)
         record(rec)
         results.append(rec)

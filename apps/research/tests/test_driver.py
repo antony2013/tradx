@@ -47,6 +47,31 @@ def test_expiry_acceptable():
     assert driver.expiry_acceptable("2026-10-01", "2026-10-06", exp, None) is False
 
 
+def test_api_healthy(monkeypatch):
+    import io
+    import urllib.request
+
+    class OkResp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda url, timeout=0: OkResp()
+    )
+    assert driver.api_healthy() is True
+
+    def down(url, timeout=0):
+        raise OSError("refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", down)
+    assert driver.api_healthy() is False
+
+
 def test_verify_existing_reads_meta(tmp_path, monkeypatch):
     monkeypatch.setattr(driver, "OUT_DIR", tmp_path)
     meta = {

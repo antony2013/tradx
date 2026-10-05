@@ -167,17 +167,30 @@ def parse_summary_line(line: str) -> dict | None:
 
 
 def run_day(day: str, resume: bool = False) -> dict:
-    """One worker subprocess. Returns a record (never raises)."""
+    """One worker subprocess. Returns a record (never raises).
+
+    A hung worker (network stall past the timeout) comes back as a
+    failed-day record instead of killing the driver.
+    """
     cmd = [sys.executable, "-m", "research.expired_collect", "--date", day]
     if resume:
         cmd.append("--resume")
-    proc = subprocess.run(
-        cmd,
-        cwd=str(SRC),
-        capture_output=True,
-        text=True,
-        timeout=3600,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(SRC),
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+    except subprocess.TimeoutExpired:
+        log(f"DAY {day}: worker timeout, marking failed")
+        return {"date": day, "kind": "other",
+                "line": f"WORKER_TIMEOUT {day}"}
+    except OSError as exc:
+        log(f"DAY {day}: worker launch failed: {exc}")
+        return {"date": day, "kind": "other",
+                "line": f"WORKER_LAUNCH_ERROR {day} {exc}"}
     out = (proc.stdout or "").strip().splitlines()
     line = out[-1].strip() if out else ""
     rec: dict = {"date": day, "line": line, "rc": proc.returncode}

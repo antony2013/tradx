@@ -73,6 +73,18 @@ def test_run_day_passes_resume_flag(monkeypatch):
     assert "--resume" not in seen["cmd"]
 
 
+def test_run_day_survives_worker_timeout(monkeypatch):
+    import subprocess
+
+    def hanging(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, 3600)
+
+    monkeypatch.setattr(subprocess, "run", hanging)
+    rec = driver.run_day("2024-10-03")
+    assert rec["kind"] == "other"
+    assert rec["line"] == "WORKER_TIMEOUT 2024-10-03"
+
+
 def test_api_healthy(monkeypatch):
     import io
     import urllib.request

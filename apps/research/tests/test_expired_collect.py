@@ -245,6 +245,34 @@ def test_active_mixed_expiries_rejected(monkeypatch, tmp_path):
     assert ec.run("2026-10-01").startswith("CONTRACT_ERROR")
 
 
+def test_empty_chain_retried_before_skip(monkeypatch, tmp_path):
+    calls = {"n": 0, "sleeps": []}
+    chain = _chain()
+
+    def get_impl(path):
+        if "expired-option-contracts" in path:
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return {"status": 200, "body": {"data": []}}
+            return {"status": 200, "body": {"data": chain}}
+        return {"status": 200, "body": {"data": ["2024-10-03"]}}
+
+    s = Script()
+    s.post_impl = lambda path, p: {
+        "status": 200,
+        "body": {"dataset_id": "ds", "status": "COMPLETE", "reused": False},
+    }
+    s.get_impl = get_impl
+    s.read_impl = lambda dsid: _spot_row()
+    s.install(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    monkeypatch.setattr("time.sleep", lambda sec: calls["sleeps"].append(sec))
+    line = ec.run("2024-10-03")
+    assert calls["n"] == 3
+    assert calls["sleeps"] == [5, 5]
+    assert " | 2 | " in line  # 2 stored
+
+
 def test_expiry_pick_and_grid_math():
     assert ec.pick_expiry(["2024-10-10", "2024-10-03"], "2024-10-03") == "2024-10-03"
     assert ec.pick_expiry(["2024-09-26", "2024-10-03"], "2024-10-03") == "2024-10-03"

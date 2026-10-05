@@ -163,15 +163,26 @@ def run(date: str, resume: bool = False) -> str:
     except ValueError:
         expiry = None
     if expiry is not None:
-        con = _get(
-            "/instruments/expired-option-contracts?"
-            + urllib.parse.urlencode(
-                {"instrument_key": UNDERLYING, "expiry_date": expiry}
+        # An empty chain for a listed expiry is almost certainly a
+        # transient upstream blip (not "no contracts"): retry a few times
+        # before accepting skip-all, which would halt the bulk driver.
+        import time as _time
+
+        for _ in range(3):
+            con = _get(
+                "/instruments/expired-option-contracts?"
+                + urllib.parse.urlencode(
+                    {"instrument_key": UNDERLYING, "expiry_date": expiry}
+                )
             )
-        )
-        if con["status"] != 200 or not isinstance(con["body"].get("data"), list):
-            return f"CONTRACT_ERROR {date} {con['body']}"
-        contracts = con["body"]["data"]
+            if con["status"] != 200 or not isinstance(
+                con["body"].get("data"), list
+            ):
+                return f"CONTRACT_ERROR {date} {con['body']}"
+            contracts = con["body"]["data"]
+            if contracts:
+                break
+            _time.sleep(5)
     else:
         act = _get(
             "/instruments/option-contracts?"

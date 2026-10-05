@@ -87,6 +87,38 @@ def test_verify_existing_reads_meta(tmp_path, monkeypatch):
     assert driver.verify_existing("2024-10-04", [], None)["kind"] == "unverified"
 
 
+def test_http_json_retries_then_gives_up(monkeypatch):
+    import urllib.request
+
+    calls = {"n": 0, "sleeps": []}
+
+    class OkResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def flaky(url, timeout=0):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise OSError("dropped")
+        return OkResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", flaky)
+    monkeypatch.setattr("time.sleep", lambda s: calls["sleeps"].append(s))
+    monkeypatch.setattr("json.load", lambda resp: {"ok": True})
+    assert driver._http_json("http://x", 1) == {"ok": True}
+    assert calls["n"] == 3
+    assert calls["sleeps"] == [5, 10]
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen",
+        lambda url, timeout=0: (_ for _ in ()).throw(OSError("down")),
+    )
+    assert driver._http_json("http://x", 1) is None
+
+
 def test_already_done_needs_parquet_and_clean_meta(tmp_path, monkeypatch):
     monkeypatch.setattr(driver, "OUT_DIR", tmp_path)
     assert driver.already_done("2024-10-03") is False

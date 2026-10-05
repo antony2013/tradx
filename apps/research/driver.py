@@ -92,13 +92,29 @@ def api_healthy() -> bool:
         return False
 
 
+def _http_json(url: str, timeout: int) -> dict | None:
+    """GET JSON with retries. None after repeated connection drops."""
+    last_error: str = ""
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                return json.load(resp)
+        except OSError as exc:
+            last_error = str(exc)[:120]
+            log(f"WARN http retry {attempt + 1}/4: {last_error}")
+            time.sleep(5 * (attempt + 1))
+    log(f"HTTP failed after retries: {last_error}")
+    return None
+
+
 def fetch_expiries() -> list:
     base = os.environ.get("TRADX_API_URL", "http://localhost:3000")
     url = base + "/instruments/expiries?" + urllib.parse.urlencode(
         {"instrument_key": "NSE_INDEX|Nifty 50"}
     )
-    with urllib.request.urlopen(url, timeout=60) as resp:
-        body = json.load(resp)
+    body = _http_json(url, 60)
+    if body is None:
+        return []
     return [d for d in body.get("data", []) if isinstance(d, str)]
 
 
@@ -112,10 +128,8 @@ def fetch_active_expiry() -> str | None:
     url = base + "/instruments/option-contracts?" + urllib.parse.urlencode(
         {"instrument_key": "NSE_INDEX|Nifty 50", "expiry_date": "next_week"}
     )
-    try:
-        with urllib.request.urlopen(url, timeout=60) as resp:
-            body = json.load(resp)
-    except OSError:
+    body = _http_json(url, 60)
+    if body is None:
         return None
     weeks = {r.get("expiry") for r in body.get("data", []) if isinstance(r, dict)}
     return weeks.pop() if len(weeks) == 1 and isinstance(next(iter(weeks)), str) else None
@@ -339,6 +353,10 @@ def main(argv: list | None = None) -> int:
     log(f"trading days in range: {len(days)} ({days[0]}..{days[-1]})")
     expiries = fetch_expiries()
     log(f"expiries listed: {len(expiries)}")
+    if not expiries:
+        log("HALT: expiries unavailable after retries")
+        write_summary([], started)
+        return 6
 
     if not canary_gate(days, expiries):
         write_summary([], started)

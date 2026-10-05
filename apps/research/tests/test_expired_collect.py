@@ -273,6 +273,24 @@ def test_empty_chain_retried_before_skip(monkeypatch, tmp_path):
     assert " | 2 | " in line  # 2 stored
 
 
+def test_empty_chain_after_retries_fails_day(monkeypatch, tmp_path):
+    s = Script()
+    s.post_impl = lambda path, p: {
+        "status": 200,
+        "body": {"dataset_id": "ds", "status": "COMPLETE", "reused": False},
+    }
+    s.get_impl = lambda path: (
+        {"status": 200, "body": {"data": ["2024-10-03"]}}
+        if "expiries?" in path
+        else {"status": 200, "body": {"data": []}}
+    )
+    s.read_impl = lambda dsid: _spot_row()
+    s.install(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    monkeypatch.setattr("time.sleep", lambda sec: None)
+    assert ec.run("2024-10-03") == "CONTRACT_EMPTY 2024-10-03 2024-10-03"
+
+
 def test_expiry_pick_and_grid_math():
     assert ec.pick_expiry(["2024-10-10", "2024-10-03"], "2024-10-03") == "2024-10-03"
     assert ec.pick_expiry(["2024-09-26", "2024-10-03"], "2024-10-03") == "2024-10-03"

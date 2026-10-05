@@ -384,11 +384,13 @@ def main(argv: list | None = None) -> int:
             return 5
         time.sleep(SLEEP_BETWEEN_DAYS)
 
-    # Retry FAILED days once.
+    # Retry FAILED days once: summaries with failed>0, plus transient
+    # non-summary days (e.g. CONTRACT_EMPTY). Fatal halts never reach here.
     retry = [
         r["date"]
         for r in results
-        if r.get("kind") == "summary" and r["failed"] > 0
+        if (r.get("kind") == "summary" and r["failed"] > 0)
+        or r.get("kind") == "other"
     ]
     for day in retry:
         rec = run_day(day)

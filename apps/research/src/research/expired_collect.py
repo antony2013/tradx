@@ -164,10 +164,13 @@ def run(date: str, resume: bool = False) -> str:
         expiry = None
     if expiry is not None:
         # An empty chain for a listed expiry is almost certainly a
-        # transient upstream blip (not "no contracts"): retry a few times
-        # before accepting skip-all, which would halt the bulk driver.
+        # transient upstream blip (not "no contracts"): retry a few times.
+        # Still empty afterwards -> fail the DAY loudly (CONTRACT_EMPTY)
+        # instead of silently skipping everything: a listed expiry always
+        # has contracts, and skip-all would hide the outage.
         import time as _time
 
+        contracts = []
         for _ in range(3):
             con = _get(
                 "/instruments/expired-option-contracts?"
@@ -183,6 +186,8 @@ def run(date: str, resume: bool = False) -> str:
             if contracts:
                 break
             _time.sleep(5)
+        if not contracts:
+            return f"CONTRACT_EMPTY {date} {expiry}"
     else:
         act = _get(
             "/instruments/option-contracts?"

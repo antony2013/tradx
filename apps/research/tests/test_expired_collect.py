@@ -123,8 +123,15 @@ def test_retry_cap_never_fourth(monkeypatch, tmp_path):
         if "expiries" in path
         else {"status": 200, "body": {"data": _chain()}}
     )
-    # spot ok, everything else empty -> 3 attempts each, then FAILED
-    s.read_impl = lambda dsid: _spot_row() if "Nifty" in dsid else []
+    # spot ok, everything else empty -> 3 attempts each, then FAILED.
+    # First DB read is the spot candle (mock ids carry no names here).
+    reads = {"n": 0}
+
+    def read_impl(dsid):
+        reads["n"] += 1
+        return _spot_row() if reads["n"] == 1 else []
+
+    s.read_impl = read_impl
     s.install(monkeypatch)
     monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
     line = ec.run("2024-10-03")
@@ -137,7 +144,7 @@ def test_retry_cap_never_fourth(monkeypatch, tmp_path):
     assert "FAILED=25000CE,25000PE" in line
 
 
-def test_reused_complete_skips(monkeypatch, tmp_path):
+def test_reused_complete_materializes(tmp_path, monkeypatch):
     s = Script()
     s.post_impl = lambda path, p: {
         "status": 200,
@@ -148,13 +155,47 @@ def test_reused_complete_skips(monkeypatch, tmp_path):
         if "expiries" in path
         else {"status": 200, "body": {"data": _chain()}}
     )
-    s.read_impl = lambda dsid: _spot_row()
+    # Reused datasets materialize from the DB into this run's parquet.
+    # First DB read is the spot candle; the rest are instrument candles.
+    reads = {"n": 0}
+
+    def read_impl(dsid):
+        reads["n"] += 1
+        return _spot_row() if reads["n"] == 1 else _candles(10)
+
+    s.read_impl = read_impl
     s.install(monkeypatch)
     monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
     line = ec.run("2024-10-03")
     parts = [p.strip() for p in line.split("|")]
-    assert parts[4] == "0"  # stored
-    assert parts[5] == "18"  # skipped: 8 unmatched strikes*2 + 2 reused
+    assert parts[4] == "2"  # stored from DB, not refetched
+    assert parts[5] == "16"  # skipped: unmatched strikes only
+    frame = pd.read_parquet(tmp_path / "expired_options_2024-10-03.parquet")
+    assert len(frame) == 20
+
+
+def test_reused_complete_empty_is_failed(tmp_path, monkeypatch):
+    s = Script()
+    s.post_impl = lambda path, p: {
+        "status": 200,
+        "body": {"dataset_id": "ds-x", "status": "COMPLETE", "reused": True},
+    }
+    s.get_impl = lambda path: (
+        {"status": 200, "body": {"data": ["2024-10-03"]}}
+        if "expiries" in path
+        else {"status": 200, "body": {"data": _chain()}}
+    )
+    reads = {"n": 0}
+
+    def read_impl(dsid):
+        reads["n"] += 1
+        return _spot_row() if reads["n"] == 1 else []
+
+    s.read_impl = read_impl
+    s.install(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    line = ec.run("2024-10-03")
+    assert "FAILED=25000CE,25000PE" in line
 
 
 def test_auth_error_prints_and_stops(monkeypatch, tmp_path, capsys):
@@ -288,7 +329,7 @@ def test_empty_chain_after_retries_fails_day(monkeypatch, tmp_path):
     s.install(monkeypatch)
     monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
     monkeypatch.setattr("time.sleep", lambda sec: None)
-    assert ec.run("2024-10-03") == "CONTRACT_EMPTY 2024-10-03 2024-10-03"
+    assert ec.run("2024-10-03").startswith("CONTRACT_EMPTY 2024-10-03 2024-10-03")
 
 
 def test_fetch_pacing_between_attempts(monkeypatch, tmp_path):

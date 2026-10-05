@@ -174,6 +174,7 @@ def run(date: str, resume: bool = False) -> str:
         # instead of silently skipping everything: a listed expiry always
         # has contracts, and skip-all would hide the outage.
         contracts = []
+        attempt_rows: list = []
         for _ in range(3):
             con = _get(
                 "/instruments/expired-option-contracts?"
@@ -186,11 +187,13 @@ def run(date: str, resume: bool = False) -> str:
             ):
                 return f"CONTRACT_ERROR {date} {con['body']}"
             contracts = con["body"]["data"]
+            attempt_rows.append(len(contracts))
             if contracts:
                 break
             time.sleep(5)
         if not contracts:
-            return f"CONTRACT_EMPTY {date} {expiry}"
+            return (f"CONTRACT_EMPTY {date} {expiry}"
+                    f" chain_rows={attempt_rows}")
     else:
         act = _get(
             "/instruments/option-contracts?"
@@ -244,7 +247,25 @@ def run(date: str, resume: bool = False) -> str:
                     continue
                 rec = got["record"]
                 if rec.get("reused") and rec.get("status") == "COMPLETE":
-                    skipped += 1
+                    # Already collected upstream: materialize from the DB
+                    # into this run's parquet instead of skipping silently.
+                    # A reused COMPLETE with zero rows is inconsistent data.
+                    reused_rows = _read_candles(rec["dataset_id"])
+                    if not reused_rows:
+                        failed.append(f"{strike}{opt_type}")
+                        done = True
+                        continue
+                    for r in reused_rows:
+                        stored.append(
+                            {
+                                "timestamp": r[0], "open": r[1], "high": r[2],
+                                "low": r[3], "close": r[4], "volume": r[5],
+                                "oi": r[6], "strike": strike, "type": opt_type,
+                                "expiry": expiry, "atm_strike": atm,
+                                "offset": (strike - atm) // 50,
+                                "dataset_id": rec["dataset_id"],
+                            }
+                        )
                     done = True
                     continue
                 rows = _read_candles(rec["dataset_id"])

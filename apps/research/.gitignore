@@ -5,6 +5,9 @@ __pycache__/
 # Virtual environments
 .venv/
 
+# Secrets (never commit)
+.env
+
 # Research artefacts (local only, never commit)
 data/
 reports/

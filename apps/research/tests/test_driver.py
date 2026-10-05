@@ -47,6 +47,32 @@ def test_expiry_acceptable():
     assert driver.expiry_acceptable("2026-10-01", "2026-10-06", exp, None) is False
 
 
+def test_run_day_passes_resume_flag(monkeypatch):
+    import subprocess
+
+    seen: dict = {}
+
+    class Done:
+        stdout = (
+            "2024-10-03 | 2024-10-03 | 1 | 1 | 2 | 0 | 0 | short_series(0)\n"
+        )
+        stderr = ""
+        returncode = 0
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    rec = driver.run_day("2024-10-03", resume=True)
+    assert "--resume" in seen["cmd"]
+    assert rec["kind"] == "summary"
+    assert rec["failed"] == 0
+
+    driver.run_day("2024-10-03", resume=False)
+    assert "--resume" not in seen["cmd"]
+
+
 def test_api_healthy(monkeypatch):
     import io
     import urllib.request

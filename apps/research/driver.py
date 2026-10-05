@@ -166,10 +166,13 @@ def parse_summary_line(line: str) -> dict | None:
         return None
 
 
-def run_day(day: str) -> dict:
+def run_day(day: str, resume: bool = False) -> dict:
     """One worker subprocess. Returns a record (never raises)."""
+    cmd = [sys.executable, "-m", "research.expired_collect", "--date", day]
+    if resume:
+        cmd.append("--resume")
     proc = subprocess.run(
-        [sys.executable, "-m", "research.expired_collect", "--date", day],
+        cmd,
         cwd=str(SRC),
         capture_output=True,
         text=True,
@@ -374,11 +377,12 @@ def main(argv: list | None = None) -> int:
         if already_done(day):
             log(f"SKIP {day}: parquet + failed=0")
             continue
+        partial = (OUT_DIR / f"expired_options_{day}.parquet").exists()
         if not api_healthy():
             log("HALT: API unreachable, refusing to burn days on retries")
             write_summary(results, started)
             return 6
-        rec = run_day(day)
+        rec = run_day(day, resume=partial)
         record(rec)
         results.append(rec)
         log(f"DAY {day}: {rec.get('line')}")
@@ -395,7 +399,10 @@ def main(argv: list | None = None) -> int:
                 write_summary(results, started)
                 return 4
         else:
-            consec_failed += 1
+            if str(rec.get("line", "")).startswith("ALREADY_COLLECTED"):
+                log(f"SKIP {day}: already collected")
+            else:
+                consec_failed += 1
         if consec_failed >= 3:
             log("HALT: 3 consecutive failed days")
             write_summary(results, started)

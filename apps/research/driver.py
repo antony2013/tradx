@@ -201,14 +201,28 @@ def already_done(day: str) -> bool:
 
 
 def verify_existing(day: str, expiries: list, active_expiry: str | None) -> dict:
-    """Re-check an ALREADY_COLLECTED day from its meta sidecar."""
+    """Re-check an ALREADY_COLLECTED day from its meta sidecar.
+
+    The E-from-tool check cannot time-travel: an active-week E recorded
+    days ago (e.g. 2026-10-06) will not match today's chain. Instead
+    require self-consistency (meta E == summary E, E >= D) plus clean
+    counts. Fresh runs still resolve E live from a tool.
+    """
     try:
         meta = json.loads(
             (OUT_DIR / f"expired_options_{day}.meta.json").read_text(
                 encoding="utf-8")
         )
+        parsed = parse_summary_line(meta.get("summary", ""))
     except (OSError, json.JSONDecodeError) as exc:
         return {"date": day, "kind": "unverified", "line": f"ALREADY but unreadable: {exc}"}
+    if (
+        parsed is None
+        or parsed.get("expiry") != meta.get("expiry")
+        or parsed.get("date") != day
+    ):
+        return {"date": day, "kind": "unverified",
+                "line": "ALREADY but meta/summary mismatch"}
     rec = {
         "date": day,
         "kind": "summary",
@@ -218,6 +232,7 @@ def verify_existing(day: str, expiries: list, active_expiry: str | None) -> dict
         "failed": len(meta.get("failed", ["?"])),
         "short": meta.get("short_series", 99),
         "line": meta.get("summary", "ALREADY_COLLECTED (meta)"),
+        "reverified": True,
     }
     return rec
 
@@ -243,13 +258,17 @@ def canary_gate(days: list, expiries: list) -> bool:
             log(f"CANARY {day}: no summary -> FAIL")
             ok = False
             continue
+        e_ok = (
+            True
+            if rec.get("reverified")
+            else expiry_acceptable(day, rec["expiry"], expiries, active_expiry)
+        )
         checks = {
             "failed==0": rec["failed"] == 0,
             "short==0": rec["short"] == 0,
             "skipped<=2": rec["skipped"] <= 2,
             "E>=D": rec["expiry"] >= day,
-            "E-from-tool": expiry_acceptable(
-                day, rec["expiry"], expiries, active_expiry),
+            "E-from-tool": e_ok,
         }
         log(f"CANARY {day}: {checks}")
         if not all(checks.values()):

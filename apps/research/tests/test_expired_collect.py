@@ -343,6 +343,16 @@ def test_fetch_pacing_between_attempts(monkeypatch, tmp_path):
     assert sleeps == [0.5, 0.5]
 
 
+def test_worker_skip_env_for_known_empty(monkeypatch, tmp_path):
+    _full_script(monkeypatch)
+    monkeypatch.setattr(ec, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(ec, "SKIP_COMBOS", {("25000", "CE", "2024-10-03")})
+    line = ec.run("2024-10-03")
+    parts = [p.strip() for p in line.split("|")]
+    assert parts[4] == "1"  # only PE stored
+    assert parts[5] == "17"  # 16 unmatched + 1 env-skipped
+
+
 def test_expiry_pick_and_grid_math():
     assert ec.pick_expiry(["2024-10-10", "2024-10-03"], "2024-10-03") == "2024-10-03"
     assert ec.pick_expiry(["2024-09-26", "2024-10-03"], "2024-10-03") == "2024-10-03"

@@ -45,6 +45,14 @@ SHORT_SERIES_BARS = 350
 # endpoints throttle bursts (200-empty responses); pacing keeps the day
 # alive. Overridable for tests via WORKER_SLEEP_SEC.
 FETCH_PACING_SEC = float(os.environ.get("WORKER_SLEEP_SEC", "2.0"))
+# Operator-confirmed upstream-empty combos, "STRIKE:TYPE:EXPIRY,..." e.g.
+# "25000:PE:2025-09-30". Only ever added after verifying Upstox itself
+# returns zero candles. Counted as skipped (with reason), never fetched.
+SKIP_COMBOS = {
+    tuple(part.split(":"))
+    for part in os.environ.get("WORKER_SKIP", "").split(",")
+    if part.count(":") == 2
+}
 
 
 class AuthError(Exception):
@@ -229,8 +237,16 @@ def run(date: str, resume: bool = False) -> str:
     skipped = 0
     skipped_combos: list = []
     failed: list = []
+    skip_set = {(s, t, e) for s, t, e in SKIP_COMBOS}
     for strike in strikes:
         for opt_type in ("CE", "PE"):
+            if (str(strike), opt_type, expiry) in skip_set:
+                skipped += 1
+                skipped_combos.append(
+                    {"strike": strike, "type": opt_type,
+                     "reason": "known-empty-upstream"}
+                )
+                continue
             key = key_of.get((strike, opt_type))
             if key is None:
                 skipped += 1
